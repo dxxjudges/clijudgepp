@@ -1,0 +1,174 @@
+name: build
+
+# CliJudge++ GUI: 复用 dxxjudges/clijudge 的 include（数据层 + 评测层），
+# 因此 CI 会额外检出主项目到工作区 clijudge/ 目录。
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CLIJUDGE_REPO: dxxjudges/clijudge
+
+jobs:
+  windows-x64:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout clijudge (shared headers)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.CLIJUDGE_REPO }}
+          path: clijudge
+
+      - name: Setup MSYS2 (MinGW64)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+
+      - name: Build
+        shell: msys2 {0}
+        run: |
+          set -e
+          INC="$(cygpath -w "$PWD/clijudge/include")"
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCLIJUDGE_INCLUDE_DIR="$INC"
+          cmake --build build --parallel
+
+      - name: Smoke test (--help)
+        shell: msys2 {0}
+        run: ./build/clijudgepp.exe --help
+
+      - name: Package
+        shell: msys2 {0}
+        run: |
+          set -e
+          mkdir -p dist
+          cp build/clijudgepp.exe dist/
+          cp -f gui.example.json dist/gui.json 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clijudgepp-windows-x64
+          path: dist/
+
+  linux-x64:
+    name: Linux x64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout clijudge (shared headers)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.CLIJUDGE_REPO }}
+          path: clijudge
+
+      - name: Build
+        run: |
+          set -e
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+            -DCLIJUDGE_INCLUDE_DIR="$PWD/clijudge/include"
+          cmake --build build --parallel
+
+      - name: Smoke test (--help)
+        run: ./build/clijudgepp --help
+
+      - name: Package
+        run: |
+          set -e
+          mkdir -p dist
+          cp build/clijudgepp dist/
+          cp -f gui.example.json dist/gui.json 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clijudgepp-linux-x64
+          path: dist/
+
+  linux-arm64:
+    name: Linux arm64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout clijudge (shared headers)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.CLIJUDGE_REPO }}
+          path: clijudge
+
+      - name: Install cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-aarch64-linux-gnu
+
+      - name: Build (cross)
+        run: |
+          set -e
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+            -DCLIJUDGE_INCLUDE_DIR="$PWD/clijudge/include"
+          cmake --build build --parallel
+
+      - name: Verify architecture
+        run: file build/clijudgepp | grep -q 'aarch64'
+
+      - name: Package
+        run: |
+          set -e
+          mkdir -p dist
+          cp build/clijudgepp dist/
+          cp -f gui.example.json dist/gui.json 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clijudgepp-linux-arm64
+          path: dist/
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows-x64, linux-x64, linux-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten
+        run: |
+          set -e
+          mkdir -p dist
+          for d in artifacts/*; do
+            name="$(basename "$d")"
+            mkdir -p "dist/$name"
+            cp -r "$d"/. "dist/$name"/
+          done
+
+      - name: Zip artifacts
+        run: |
+          set -e
+          cd dist
+          for d in *; do zip -qr "${d}.zip" "$d"; done
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true

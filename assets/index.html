@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CliJudge++ · GUI Console</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">CJ</div>
+        <div class="brand-text">
+          <div class="brand-name">CliJudge<span>++</span></div>
+          <div class="brand-sub">GUI Console</div>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <a class="nav-item" href="#/overview" data-nav="overview"><span class="nav-ico">◈</span>概览</a>
+        <a class="nav-item" href="#/problems" data-nav="problems"><span class="nav-ico">▤</span>题目</a>
+        <a class="nav-item" href="#/articles" data-nav="articles"><span class="nav-ico">▦</span>文章</a>
+        <a class="nav-item" href="#/contests" data-nav="contests"><span class="nav-ico">◉</span>比赛</a>
+        <a class="nav-item" href="#/submissions" data-nav="submissions"><span class="nav-ico">↯</span>提交记录</a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="conn">
+          <span class="conn-dot" id="conn-dot"></span>
+          <span id="conn-text">连接中…</span>
+        </div>
+        <div class="data-dir" id="data-dir" title="与 clijudge CLI 共享的数据目录"></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="breadcrumb" id="breadcrumb">概览</div>
+        <div class="topbar-actions">
+          <span class="version" id="version"></span>
+          <button class="btn btn-ghost" id="refresh-btn" title="重新加载当前页面">刷新</button>
+        </div>
+      </header>
+      <section class="view" id="view">
+        <div class="loading">加载中…</div>
+      </section>
+    </main>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="toast-root" class="toast-root"></div>
+
+  <script src="/markdown.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
