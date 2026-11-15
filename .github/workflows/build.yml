@@ -110,7 +110,8 @@ jobs:
           set -e
           mkdir -p dist
           cp build/clijudgepp dist/
-          cp -P build/sdl2/libSDL2-2.0.so* dist/
+          find build -name 'libSDL2-2.0.so*' -exec cp -P {} dist/ \;
+          ls dist/
           cp -f gui.example.json dist/gui.json
 
       - uses: actions/upload-artifact@v4
@@ -157,7 +158,8 @@ jobs:
           set -e
           mkdir -p dist
           cp build/clijudgepp dist/
-          cp -P build/sdl2/libSDL2-2.0.so* dist/
+          find build -name 'libSDL2-2.0.so*' -exec cp -P {} dist/ \;
+          ls dist/
           cp -f gui.example.json dist/gui.json
 
       - uses: actions/upload-artifact@v4
@@ -184,12 +186,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install NDK and CMake
         run: |
-          yes | sdkmanager "ndk;26.1.10909125" "cmake;3.22.1" "platforms;android-34" "build-tools;34.0.0"
+          set -e
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "ndk;26.1.10909125" "cmake;3.22.1" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Build APK
         run: |
