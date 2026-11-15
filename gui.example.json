@@ -1,6 +1,7 @@
 {
   "data_dir": "",
-  "host": "127.0.0.1",
-  "port": 8787,
-  "open_browser": true
+  "font_path": "",
+  "window_width": 1280,
+  "window_height": 800,
+  "maximized": false
 }

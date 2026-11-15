@@ -4,6 +4,16 @@ build-*/
 dist/
 data/
 gui.json
+.deps/
+.cxx/
+android/.gradle/
+android/.idea/
+android/build/
+android/app/build/
+android/app/.cxx/
+android/local.properties
+*.apk
+*.aab
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake

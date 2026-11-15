@@ -1,0 +1,8 @@
+// 根构建脚本：AGP 版本与 Gradle 8.x 搭配，使用 JDK 17。
+plugins {
+    id 'com.android.application' version '8.7.3' apply false
+}
+
+tasks.register('clean', Delete) {
+    delete rootProject.layout.buildDirectory
+}

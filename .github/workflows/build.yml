@@ -1,6 +1,7 @@
 name: build
 
-# CliJudge++ GUI: 复用 dxxjudges/clijudge 的 include（数据层 + 评测层），
+# CliJudge++ 原生 GUI（SDL2 + Dear ImGui）
+# 复用 dxxjudges/clijudge 的 include（数据层 + 评测层），
 # 因此 CI 会额外检出主项目到工作区 clijudge/ 目录。
 
 on:
@@ -22,6 +23,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Checkout clijudge (shared headers)
         uses: actions/checkout@v4
@@ -49,9 +52,11 @@ jobs:
             -DCLIJUDGE_INCLUDE_DIR="$INC"
           cmake --build build --parallel
 
-      - name: Smoke test (--help)
+      - name: Smoke test
         shell: msys2 {0}
-        run: ./build/clijudgepp.exe --help
+        run: |
+          ./build/clijudgepp.exe --help
+          ./build/clijudgepp.exe --selftest
 
       - name: Package
         shell: msys2 {0}
@@ -59,7 +64,7 @@ jobs:
           set -e
           mkdir -p dist
           cp build/clijudgepp.exe dist/
-          cp -f gui.example.json dist/gui.json 2>/dev/null || true
+          cp -f gui.example.json dist/gui.json
 
       - uses: actions/upload-artifact@v4
         with:
@@ -71,12 +76,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Checkout clijudge (shared headers)
         uses: actions/checkout@v4
         with:
           repository: ${{ env.CLIJUDGE_REPO }}
           path: clijudge
+
+      - name: Install SDL2 build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
+            libxfixes-dev libxss-dev libgl1-mesa-dev libasound2-dev \
+            libudev-dev libdbus-1-dev
 
       - name: Build
         run: |
@@ -85,15 +100,18 @@ jobs:
             -DCLIJUDGE_INCLUDE_DIR="$PWD/clijudge/include"
           cmake --build build --parallel
 
-      - name: Smoke test (--help)
-        run: ./build/clijudgepp --help
+      - name: Smoke test
+        run: |
+          ./build/clijudgepp --help
+          ./build/clijudgepp --selftest
 
       - name: Package
         run: |
           set -e
           mkdir -p dist
           cp build/clijudgepp dist/
-          cp -f gui.example.json dist/gui.json 2>/dev/null || true
+          cp -P build/sdl2/libSDL2-2.0.so* dist/
+          cp -f gui.example.json dist/gui.json
 
       - uses: actions/upload-artifact@v4
         with:
@@ -102,9 +120,11 @@ jobs:
 
   linux-arm64:
     name: Linux arm64
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Checkout clijudge (shared headers)
         uses: actions/checkout@v4
@@ -112,40 +132,87 @@ jobs:
           repository: ${{ env.CLIJUDGE_REPO }}
           path: clijudge
 
-      - name: Install cross toolchain
+      - name: Install SDL2 build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++-aarch64-linux-gnu
+          sudo apt-get install -y \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
+            libxfixes-dev libxss-dev libgl1-mesa-dev libasound2-dev \
+            libudev-dev libdbus-1-dev
 
-      - name: Build (cross)
+      - name: Build
         run: |
           set -e
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_SYSTEM_NAME=Linux \
-            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
             -DCLIJUDGE_INCLUDE_DIR="$PWD/clijudge/include"
           cmake --build build --parallel
 
-      - name: Verify architecture
-        run: file build/clijudgepp | grep -q 'aarch64'
+      - name: Smoke test
+        run: |
+          ./build/clijudgepp --help
+          ./build/clijudgepp --selftest
 
       - name: Package
         run: |
           set -e
           mkdir -p dist
           cp build/clijudgepp dist/
-          cp -f gui.example.json dist/gui.json 2>/dev/null || true
+          cp -P build/sdl2/libSDL2-2.0.so* dist/
+          cp -f gui.example.json dist/gui.json
 
       - uses: actions/upload-artifact@v4
         with:
           name: clijudgepp-linux-arm64
           path: dist/
 
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Checkout clijudge (shared headers)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.CLIJUDGE_REPO }}
+          path: clijudge
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK and CMake
+        run: |
+          yes | sdkmanager "ndk;26.1.10909125" "cmake;3.22.1" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Build APK
+        run: |
+          set -e
+          cd android
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Package
+        run: |
+          set -e
+          mkdir -p dist
+          cp android/app/build/outputs/apk/debug/app-debug.apk dist/clijudgepp-android.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clijudgepp-android
+          path: dist/
+
   release:
     name: Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [windows-x64, linux-x64, linux-arm64]
+    needs: [windows-x64, linux-x64, linux-arm64, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -166,9 +233,17 @@ jobs:
         run: |
           set -e
           cd dist
-          for d in *; do zip -qr "${d}.zip" "$d"; done
+          for d in *; do
+            if [ "$d" = "clijudgepp-android" ]; then
+              cp "clijudgepp-android/clijudgepp-android.apk" .
+            else
+              zip -qr "${d}.zip" "$d"
+            fi
+          done
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.zip
+          files: |
+            dist/*.zip
+            dist/clijudgepp-android.apk
           generate_release_notes: true
