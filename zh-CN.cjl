@@ -1,0 +1,207 @@
+{
+  "meta": {
+    "display": "简体中文",
+    "name": "zh-CN",
+    "version": "1.0.0"
+  },
+  "strings": {
+    "gui": {
+      "action": {
+        "add_testcase": "新增测试点",
+        "insert_template": "插入模板",
+        "new_article": "新建文章",
+        "new_contest": "新建比赛",
+        "new_problem": "新建题目",
+        "refresh_board": "刷新排行榜",
+        "refresh_data": "刷新数据",
+        "rejudge": "重判",
+        "submit": "提交评测",
+        "submit_contest": "提交比赛题目"
+      },
+      "app": {
+        "tagline": "本地判题管理"
+      },
+      "article": {
+        "content": "Markdown 正文"
+      },
+      "common": {
+        "actions": "操作",
+        "add": "添加",
+        "back": "返回",
+        "back_arrow": "< 返回",
+        "cancel": "取消",
+        "clear": "清空",
+        "close": "关闭",
+        "create": "创建",
+        "delete": "删除",
+        "edit": "编辑",
+        "end": "结束",
+        "index": "序号",
+        "input": "输入",
+        "language": "语言",
+        "memory": "内存",
+        "open": "打开",
+        "output": "输出",
+        "points": "分值",
+        "read": "阅读",
+        "refresh": "刷新",
+        "save": "保存",
+        "score": "得分",
+        "score_short": "分数",
+        "start": "开始",
+        "status": "状态",
+        "time": "时间",
+        "time_used": "用时",
+        "title": "标题"
+      },
+      "contest": {
+        "ac_total": "通过/提交",
+        "end_time": "结束时间",
+        "leaderboard": "排行榜",
+        "no_problems": "比赛没有题目",
+        "problem_count": "题目数量: %d",
+        "problem_ids": "题目 ID（逗号分隔）",
+        "problem_submissions": "该题提交",
+        "rank": "排名",
+        "start_time": "开始时间",
+        "time_hint": "开始/结束时间格式: YYYY-MM-DD HH:MM:SS（留空表示不限时）",
+        "total_score": "总分",
+        "user": "选手"
+      },
+      "dialog": {
+        "confirm_delete": "确认删除",
+        "confirm_delete_body": "确认删除%s？此操作不可撤销。",
+        "item_problem": "题目（含全部测试点）",
+        "this_item": "该项"
+      },
+      "error": {
+        "contest_load": "比赛数据加载失败",
+        "contest_problem_missing": "比赛题目不存在",
+        "contest_write": "写入比赛提交记录失败",
+        "lock": "无法获取数据锁",
+        "lock_rejudge_unsaved": "无法获取数据锁，重判结果未保存",
+        "lock_unsaved": "无法获取数据锁，评测结果未保存",
+        "problem_load": "题目数据加载失败",
+        "problem_missing": "题目不存在",
+        "record_missing": "记录不存在",
+        "source_missing": "源码文件不存在: ",
+        "source_write": "无法写入源码文件",
+        "submission_missing": "提交记录不存在"
+      },
+      "judge": {
+        "compile_error": "编译错误",
+        "detail_parse_failed": "评测详情解析失败",
+        "no_detail": "暂无评测详情",
+        "rejudging": "重判中...",
+        "result": "评测结果",
+        "running": "评测中，请稍候...",
+        "score_line": "%s  %d / %d 分",
+        "subtask": "子任务 %d  (%d/%d)",
+        "time_memory": "用时 %s    内存 %d KB"
+      },
+      "label": {
+        "status": "状态: "
+      },
+      "lang": {
+        "display": "显示语言",
+        "download": "下载",
+        "download_failed": "下载失败：{0}",
+        "downloaded": "已下载并切换到 {0}",
+        "downloading": "正在下载 {0}...",
+        "empty": "没有获取到在线语言（请检查网络或语言源设置）",
+        "fetching": "正在获取在线语言列表...",
+        "hint": "语言包存放在 <data>/langs，与 clijudge CLI 共用",
+        "online": "获取在线语言",
+        "switched": "已切换到 {0}",
+        "use": "使用"
+      },
+      "mobile": {
+        "contest_judge": "移动端不支持比赛本地评测。",
+        "judge_requires_toolchain": "判题需要调用外部编译器（g++ 等）并运行可执行文件，移动端无法完成。请使用桌面版 clijudgepp 或 clijudge 命令行进行评测。",
+        "manage_only": "移动端仅支持管理与浏览，本地编译评测不可用。",
+        "no_judge": "Android 端不支持本地编译评测。"
+      },
+      "nav": {
+        "articles": "文章",
+        "contests": "比赛",
+        "overview": "概览",
+        "problems": "题目",
+        "submissions": "提交记录",
+        "submissions_short": "提交"
+      },
+      "overview": {
+        "data_dir": "数据目录",
+        "judge_available": "评测可用",
+        "judge_unavailable": "评测不可用（移动端）",
+        "refresh_hint": "按 F5 或点击下方按钮刷新数据",
+        "shared_data": "与 clijudge 命令行共享同一份数据：与 CLI 放在同一目录时自动使用其 data/ 目录，修改类操作持有相同的跨进程数据锁。"
+      },
+      "problem": {
+        "bytes": "%d 字节",
+        "compare_mode": "比较模式",
+        "compare_unknown": "（未识别，保留原值）",
+        "hint": "提示",
+        "input_format": "输入格式",
+        "memory_limit": "内存限制 (MB)",
+        "missing": "（题目不存在）",
+        "output_format": "输出格式",
+        "sample_input": "样例输入",
+        "sample_output": "样例输出",
+        "statement": "题面",
+        "statement_md": "题面 (Markdown)",
+        "testcase": "测试点",
+        "testdata": "测试数据",
+        "time_limit": "时间限制 (ms)",
+        "untitled": "未命名题目"
+      },
+      "statement": {
+        "compare_mode_suffix": " MB  ·  比较模式: ",
+        "hint": "## 提示\n\n",
+        "input_format": "## 输入格式\n\n",
+        "limits": "限制: ",
+        "output_format": "## 输出格式\n\n",
+        "sample_input": "## 样例输入\n\n```\n",
+        "sample_input_inline": "\n\n## 样例输入\n\n```\n",
+        "sample_output": "## 样例输出\n\n```\n",
+        "sample_output_inline": "\n\n## 样例输出\n\n```\n"
+      },
+      "submission": {
+        "detail": "提交详情",
+        "result": "结果",
+        "source": "源码: %s",
+        "submitted_at": "提交时间: %s",
+        "submitter": "提交者",
+        "summary": "分数 %d  用时 %d ms  内存 %d KB  重判 %d 次"
+      },
+      "submissions": {
+        "count": "共 %d 条（最多显示 1000 条）",
+        "empty": "暂无提交"
+      },
+      "testcase": {
+        "input_data": "输入数据",
+        "memory_hint": "内存(0=默认)",
+        "output_data": "输出数据",
+        "time_hint": "时间(0=默认)"
+      },
+      "toast": {
+        "add_failed": "添加失败",
+        "article_created": "已创建文章 #",
+        "contest_created": "已创建比赛 #",
+        "create_failed": "创建失败",
+        "deleted": "已删除",
+        "judge_busy": "已有评测任务进行中",
+        "judge_done": "评测完成: ",
+        "judge_failed": "评测失败: ",
+        "no_language": "没有可用的评测语言",
+        "problem_created": "已创建题目 #",
+        "refreshed": "已刷新",
+        "save_failed": "保存失败",
+        "saved": "已保存",
+        "score_suffix": " 分",
+        "source_empty": "源码为空",
+        "testcase_added": "已添加测试点 #",
+        "title_required": "标题不能为空"
+      }
+    }
+  }
+}

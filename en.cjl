@@ -1,0 +1,207 @@
+{
+  "meta": {
+    "display": "English",
+    "name": "en",
+    "version": "1.0.0"
+  },
+  "strings": {
+    "gui": {
+      "action": {
+        "add_testcase": "Add test case",
+        "insert_template": "Insert template",
+        "new_article": "New article",
+        "new_contest": "New contest",
+        "new_problem": "New problem",
+        "refresh_board": "Refresh leaderboard",
+        "refresh_data": "Refresh data",
+        "rejudge": "Rejudge",
+        "submit": "Submit",
+        "submit_contest": "Submit contest problem"
+      },
+      "app": {
+        "tagline": "Local judge manager"
+      },
+      "article": {
+        "content": "Markdown content"
+      },
+      "common": {
+        "actions": "Actions",
+        "add": "Add",
+        "back": "Back",
+        "back_arrow": "< Back",
+        "cancel": "Cancel",
+        "clear": "Clear",
+        "close": "Close",
+        "create": "Create",
+        "delete": "Delete",
+        "edit": "Edit",
+        "end": "End",
+        "index": "No.",
+        "input": "Input",
+        "language": "Language",
+        "memory": "Memory",
+        "open": "Open",
+        "output": "Output",
+        "points": "Points",
+        "read": "Read",
+        "refresh": "Refresh",
+        "save": "Save",
+        "score": "Score",
+        "score_short": "Score",
+        "start": "Start",
+        "status": "Status",
+        "time": "Time",
+        "time_used": "Time",
+        "title": "Title"
+      },
+      "contest": {
+        "ac_total": "AC / Total",
+        "end_time": "End time",
+        "leaderboard": "Leaderboard",
+        "no_problems": "This contest has no problems",
+        "problem_count": "Problems: %d",
+        "problem_ids": "Problem IDs (comma separated)",
+        "problem_submissions": "Submissions",
+        "rank": "Rank",
+        "start_time": "Start time",
+        "time_hint": "Start/end format: YYYY-MM-DD HH:MM:SS (empty = no limit)",
+        "total_score": "Total",
+        "user": "User"
+      },
+      "dialog": {
+        "confirm_delete": "Confirm deletion",
+        "confirm_delete_body": "Delete %s? This cannot be undone.",
+        "item_problem": "the problem (with all test cases)",
+        "this_item": "this item"
+      },
+      "error": {
+        "contest_load": "Failed to load contest",
+        "contest_problem_missing": "Contest problem not found",
+        "contest_write": "Failed to write contest submission",
+        "lock": "Failed to acquire data lock",
+        "lock_rejudge_unsaved": "Failed to acquire data lock; rejudge result was not saved",
+        "lock_unsaved": "Failed to acquire data lock; judge result was not saved",
+        "problem_load": "Failed to load problem",
+        "problem_missing": "Problem not found",
+        "record_missing": "Record not found",
+        "source_missing": "Source file not found: ",
+        "source_write": "Failed to write source file",
+        "submission_missing": "Submission not found"
+      },
+      "judge": {
+        "compile_error": "Compile error",
+        "detail_parse_failed": "Failed to parse judge detail",
+        "no_detail": "No judge detail",
+        "rejudging": "Rejudging...",
+        "result": "Judge result",
+        "running": "Judging, please wait...",
+        "score_line": "%s  %d / %d pts",
+        "subtask": "Subtask %d  (%d/%d)",
+        "time_memory": "Time %s    Memory %d KB"
+      },
+      "label": {
+        "status": "Status: "
+      },
+      "lang": {
+        "display": "Display language",
+        "download": "Download",
+        "download_failed": "Failed to download: {0}",
+        "downloaded": "Downloaded and switched to {0}",
+        "downloading": "Downloading {0}...",
+        "empty": "No online languages found. Check your network or language source settings.",
+        "fetching": "Fetching online language list...",
+        "hint": "Language packs live in <data>/langs and are shared with the clijudge CLI.",
+        "online": "Online languages",
+        "switched": "Switched to {0}",
+        "use": "Use"
+      },
+      "mobile": {
+        "contest_judge": "Local judging is not supported on mobile.",
+        "judge_requires_toolchain": "Judging requires an external compiler (g++) and running the built binary, which is not possible on mobile. Use the desktop clijudgepp build or the clijudge CLI.",
+        "manage_only": "The mobile build supports management and browsing only; local judging is unavailable.",
+        "no_judge": "Compiling and judging locally is not supported on Android."
+      },
+      "nav": {
+        "articles": "Articles",
+        "contests": "Contests",
+        "overview": "Overview",
+        "problems": "Problems",
+        "submissions": "Submissions",
+        "submissions_short": "Submissions"
+      },
+      "overview": {
+        "data_dir": "Data directory",
+        "judge_available": "Judge available",
+        "judge_unavailable": "Judge unavailable (mobile)",
+        "refresh_hint": "Press F5 or use the button below to refresh",
+        "shared_data": "Shares the same data as the clijudge CLI: when placed in the same directory it uses that data/ folder, and write operations take the same cross-process data lock."
+      },
+      "problem": {
+        "bytes": "%d bytes",
+        "compare_mode": "Compare mode",
+        "compare_unknown": " (unrecognized, kept as is)",
+        "hint": "Hint",
+        "input_format": "Input format",
+        "memory_limit": "Memory limit (MB)",
+        "missing": "(problem not found)",
+        "output_format": "Output format",
+        "sample_input": "Sample input",
+        "sample_output": "Sample output",
+        "statement": "Statement",
+        "statement_md": "Statement (Markdown)",
+        "testcase": "Test case",
+        "testdata": "Test data",
+        "time_limit": "Time limit (ms)",
+        "untitled": "Untitled problem"
+      },
+      "statement": {
+        "compare_mode_suffix": " MB  ·  Compare mode: ",
+        "hint": "## Hint\n\n",
+        "input_format": "## Input format\n\n",
+        "limits": "Limits: ",
+        "output_format": "## Output format\n\n",
+        "sample_input": "## Sample input\n\n```\n",
+        "sample_input_inline": "\n\n## Sample input\n\n```\n",
+        "sample_output": "## Sample output\n\n```\n",
+        "sample_output_inline": "\n\n## Sample output\n\n```\n"
+      },
+      "submission": {
+        "detail": "Submission detail",
+        "result": "Result",
+        "source": "Source: %s",
+        "submitted_at": "Submitted: %s",
+        "submitter": "User",
+        "summary": "Score %d  Time %d ms  Memory %d KB  Rejudged %d times"
+      },
+      "submissions": {
+        "count": "%d records (at most 1000 shown)",
+        "empty": "No submissions"
+      },
+      "testcase": {
+        "input_data": "Input data",
+        "memory_hint": "Memory (0=default)",
+        "output_data": "Output data",
+        "time_hint": "Time (0=default)"
+      },
+      "toast": {
+        "add_failed": "Add failed",
+        "article_created": "Article created #",
+        "contest_created": "Contest created #",
+        "create_failed": "Create failed",
+        "deleted": "Deleted",
+        "judge_busy": "A judge task is already running",
+        "judge_done": "Judge finished: ",
+        "judge_failed": "Judge failed: ",
+        "no_language": "No judge language available",
+        "problem_created": "Problem created #",
+        "refreshed": "Refreshed",
+        "save_failed": "Save failed",
+        "saved": "Saved",
+        "score_suffix": " pts",
+        "source_empty": "Source code is empty",
+        "testcase_added": "Test case added #",
+        "title_required": "Title cannot be empty"
+      }
+    }
+  }
+}
