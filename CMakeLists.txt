@@ -120,11 +120,12 @@ else()
     target_sources(clijudgepp PRIVATE src/clijudgepp.rc)
     target_compile_definitions(clijudgepp PRIVATE WINVER=0x0600 _WIN32_WINNT=0x0600)
     target_link_libraries(clijudgepp PRIVATE ws2_32 winhttp psapi userenv ole32 shell32)
-    if(MINGW)
+    if(NOT MSVC)
       # 与主项目一致：静态链接运行库，避免缺少 libgcc/libstdc++/libwinpthread DLL
+      # （MinGW 与 llvm-mingw 交叉工具链都适用）
       target_link_options(clijudgepp PRIVATE -static)
-      set_target_properties(clijudgepp PROPERTIES WIN32_EXECUTABLE TRUE)
     endif()
+    set_target_properties(clijudgepp PROPERTIES WIN32_EXECUTABLE TRUE)
   elseif(UNIX)
     set_target_properties(clijudgepp PROPERTIES
       INSTALL_RPATH "$ORIGIN" BUILD_RPATH "$ORIGIN")
@@ -146,7 +147,7 @@ if(NOT ANDROID)
       "${CLIJUDGE_INCLUDE_DIR}"
       "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(clijudgepp_tests PRIVATE imgui Threads::Threads)
-    if(WIN32 AND MINGW)
+    if(WIN32 AND NOT MSVC)
       target_link_options(clijudgepp_tests PRIVATE -static)
     endif()
     add_test(NAME clijudgepp_tests COMMAND clijudgepp_tests)

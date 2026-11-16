@@ -20,9 +20,21 @@ env:
   CLIJUDGE_REF: d54009ec6c62866fe011dc7110fb2e35b2b65756
 
 jobs:
-  windows-x64:
-    name: Windows x64
+  windows:
+    name: ${{ matrix.name }}
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            artifact: clijudgepp-windows-x64
+            msystem: MINGW64
+            pkg: mingw-w64-x86_64
+          - name: Windows x86
+            artifact: clijudgepp-windows-x86
+            msystem: MINGW32
+            pkg: mingw-w64-i686
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,15 +47,15 @@ jobs:
           ref: ${{ env.CLIJUDGE_REF }}
           path: clijudge
 
-      - name: Setup MSYS2 (MinGW64)
+      - name: Setup MSYS2 (${{ matrix.msystem }})
         uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          msystem: ${{ matrix.msystem }}
           update: true
           install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-ninja
+            ${{ matrix.pkg }}-gcc
+            ${{ matrix.pkg }}-cmake
+            ${{ matrix.pkg }}-ninja
 
       - name: Build
         shell: msys2 {0}
@@ -78,7 +90,60 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: clijudgepp-windows-x64
+          name: ${{ matrix.artifact }}
+          path: dist/
+
+  windows-arm64:
+    name: Windows arm64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Checkout clijudge (shared headers)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.CLIJUDGE_REPO }}
+          ref: ${{ env.CLIJUDGE_REF }}
+          path: clijudge
+
+      # x64 runner 上用 llvm-mingw 交叉编译 aarch64，产物无法在本机运行，
+      # 因此只构建不跑测试（ctest 需要在 Windows on ARM 设备上执行）
+      - name: Setup llvm-mingw
+        shell: pwsh
+        run: |
+          $ver = "20261104"
+          $url = "https://github.com/mstorsjo/llvm-mingw/releases/download/$ver/llvm-mingw-$ver-ucrt-x86_64.zip"
+          Invoke-WebRequest -Uri $url -OutFile llvm-mingw.zip
+          Expand-Archive llvm-mingw.zip -DestinationPath .
+          "$PWD\llvm-mingw-$ver-ucrt-x86_64\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Build (cross compile)
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_C_COMPILER=aarch64-w64-mingw32-clang `
+            -DCMAKE_CXX_COMPILER=aarch64-w64-mingw32-clang++ `
+            -DCMAKE_RC_COMPILER=aarch64-w64-mingw32-windres `
+            -DCLIJUDGE_INCLUDE_DIR="$PWD/clijudge/include"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build build --parallel
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item build/clijudgepp.exe dist/
+          Copy-Item gui.example.json dist/gui.json
+          Copy-Item LICENSE dist/LICENSE.txt
+          Copy-Item assets/icon.png dist/icon.png
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clijudgepp-windows-arm64
           path: dist/
 
   linux-x64:
@@ -191,6 +256,53 @@ jobs:
           name: clijudgepp-linux-arm64
           path: dist/
 
+  linux-x86:
+    name: Linux x86
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Checkout clijudge (shared headers)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.CLIJUDGE_REPO }}
+          ref: ${{ env.CLIJUDGE_REF }}
+          path: clijudge
+
+      # amd64 runner 上装 i386 开发头文件会与 64 位包冲突，
+      # 因此直接在 32 位 Debian 容器里原生构建、测试与打包
+      - name: Build / test / package (i386 container)
+        run: |
+          docker run --rm --platform linux/386 -v "$PWD":/src -w /src \
+            -e DEBIAN_FRONTEND=noninteractive debian:bookworm bash -c '
+              set -e
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                build-essential cmake ninja-build ca-certificates \
+                libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
+                libxfixes-dev libxss-dev libgl1-mesa-dev libasound2-dev \
+                libudev-dev libdbus-1-dev
+              cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DCLIJUDGE_INCLUDE_DIR=/src/clijudge/include
+              cmake --build build --parallel
+              ./build/clijudgepp --help
+              ./build/clijudgepp --selftest
+              (cd build && ctest --output-on-failure)
+              mkdir -p dist
+              cp build/clijudgepp dist/
+              find build -name "libSDL2-2.0.so*" -exec cp -P {} dist/ \;
+              cp -f gui.example.json dist/gui.json
+              cp -f LICENSE dist/LICENSE.txt
+              cp -f assets/icon.png dist/icon.png
+            '
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clijudgepp-linux-x86
+          path: dist/
+
   android:
     name: Android APK
     runs-on: ubuntu-latest
@@ -246,7 +358,7 @@ jobs:
   release:
     name: Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [windows-x64, linux-x64, linux-arm64, android]
+    needs: [windows, windows-arm64, linux-x64, linux-arm64, linux-x86, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

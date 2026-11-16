@@ -152,11 +152,13 @@ clijudgepp [options]
 ## CI
 
 [.github/workflows/build.yml](.github/workflows/build.yml) 在 `push` / `pull_request` / `workflow_dispatch`
-时构建四个产物：
+时构建以下产物：
 
-- `windows-x64`（MSYS2 MinGW64 + Ninja，单文件 exe）
+- `windows-x64` / `windows-x86`（MSYS2 MinGW64 / MinGW32 + Ninja，单文件 exe）
+- `windows-arm64`（llvm-mingw 交叉编译；产物需在 Windows on ARM 上运行，CI 只构建不跑测试）
 - `linux-x64`（GCC + 系统 SDL2 依赖）
 - `linux-arm64`（原生 ARM64 runner）
+- `linux-x86`（32 位 Debian 容器内原生构建与测试）
 - `android`（JDK 17 + NDK 26.1，`assembleDebug` APK）
 
 构建前会把 `dxxjudges/clijudge` 检出到工作区 `clijudge/`，作为 include 源。
