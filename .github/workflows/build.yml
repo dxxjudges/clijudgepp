@@ -73,6 +73,7 @@ jobs:
           mkdir -p dist
           cp build/clijudgepp.exe dist/
           cp -f gui.example.json dist/gui.json
+          cp -f LICENSE dist/LICENSE.txt
 
       - uses: actions/upload-artifact@v4
         with:
@@ -126,6 +127,7 @@ jobs:
           find build -name 'libSDL2-2.0.so*' -exec cp -P {} dist/ \;
           ls dist/
           cp -f gui.example.json dist/gui.json
+          cp -f LICENSE dist/LICENSE.txt
 
       - uses: actions/upload-artifact@v4
         with:
@@ -179,6 +181,7 @@ jobs:
           find build -name 'libSDL2-2.0.so*' -exec cp -P {} dist/ \;
           ls dist/
           cp -f gui.example.json dist/gui.json
+          cp -f LICENSE dist/LICENSE.txt
 
       - uses: actions/upload-artifact@v4
         with:

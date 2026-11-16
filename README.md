@@ -133,3 +133,11 @@ ctest --test-dir build --output-on-failure   # Markdown 解析 + 比较模式表
 ./build/clijudgepp --selftest                # 数据目录探测与数据层只读冒烟
 ```
 
+## 许可证
+
+本项目以 [MIT License](LICENSE) 发布。
+
+第三方组件：
+- [Dear ImGui](https://github.com/ocornut/imgui) — MIT
+- [SDL2](https://github.com/libsdl-org/SDL) — zlib License（Android 端复制的 SDL Java 层见 `android/org.libsdl.LICENSE.txt`）
+
