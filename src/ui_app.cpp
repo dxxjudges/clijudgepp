@@ -16,6 +16,7 @@
 #include "json.hpp"
 #include "markdown.h"
 #include "data_service.h"
+#include "compare_modes.h"
 
 namespace clijudge {
 namespace gui {
@@ -24,24 +25,6 @@ using json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 
 namespace {
-
-struct LangDef {
-    const char* name;
-    const char* ext;
-    const char* tmpl;
-};
-
-const LangDef kLangs[] = {
-    {"C++17", ".cpp",
-     "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    \n    return 0;\n}\n"},
-    {"C11", ".c", "#include <stdio.h>\n\nint main() {\n    \n    return 0;\n}\n"},
-    {"Java 17", ".java",
-     "import java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {\n        "
-     "\n    }\n}\n"},
-    {"Python 3", ".py", "import sys\n\ndef main():\n    pass\n\nmain()\n"},
-    {"Rust", ".rs", "use std::io::*;\n\nfn main() {\n    \n}\n"},
-};
-const int kLangCount = (int)(sizeof(kLangs) / sizeof(kLangs[0]));
 
 int resizeCallback(ImGuiInputTextCallbackData* data) {
     if (data->EventFlag == ImGuiInputTextFlags_CallbackResize) {
@@ -138,7 +121,8 @@ struct UiApp::Impl {
         std::string title, desc, inputDesc, outputDesc, hint, sampleIn, sampleOut;
         int timeLimit = 1000;
         int memoryLimit = 256;
-        int compareIdx = 0;
+        // 原样保存 CLI 的 compare_mode，识别不了的值也不会被覆盖成 text_strict
+        std::string compareMode = "text_strict";
     } pe;
     json testCases = json::array();
     bool dirtyTestCases = false;
@@ -155,6 +139,7 @@ struct UiApp::Impl {
     // 提交
     std::string code;
     int langIdx = 0;
+    std::vector<LangOption> langs;
 
     // 比赛提交
     int contestProblemIdx = 1;
@@ -198,7 +183,8 @@ struct UiApp::Impl {
         theme.font = opt.font;
         theme.fontSize = std::max(13.0f, 18.0f * S);
         theme.lineSpacing = std::max(2.0f, 4.0f * S);
-        code = kLangs[0].tmpl;
+        langs = svc.languages();
+        code = langs.empty() ? std::string() : langs[0].tmpl;
     }
 
     void notify(const std::string& msg) {
@@ -245,13 +231,7 @@ struct UiApp::Impl {
         pe.sampleOut = sval(p, "sample_output");
         pe.timeLimit = ival(p, "time_limit", 1000);
         pe.memoryLimit = ival(p, "memory_limit", 256);
-        std::string cm = sval(p, "compare_mode", "text_strict");
-        static const char* modes[] = {"text_strict", "text_line", "text_no_space", "float_abs",
-                                      "float_rel", "float_all", "spj"};
-        pe.compareIdx = 0;
-        for (int i = 0; i < 7; ++i) {
-            if (cm == modes[i]) { pe.compareIdx = i; break; }
-        }
+        pe.compareMode = sval(p, "compare_mode", "text_strict");
     }
 
     // 轮询异步评测
@@ -284,7 +264,11 @@ struct UiApp::Impl {
             return;
         }
         hasOutcome = false;
-        std::string ext = kLangs[langIdx].ext;
+        if (langs.empty() || langIdx < 0 || langIdx >= (int)langs.size()) {
+            notify("没有可用的评测语言");
+            return;
+        }
+        std::string ext = langs[(size_t)langIdx].ext;
         if (contest) {
             if (curContestId() < 0) return;
             task = Task::ContestSubmit;
@@ -653,10 +637,17 @@ struct UiApp::Impl {
             ImGui::SetNextItemWidth(-FLT_MIN);
             ImGui::InputInt("内存限制 (MB)", &pe.memoryLimit);
             ImGui::TableNextColumn();
-            static const char* modes[] = {"text_strict", "text_line", "text_no_space",
-                                          "float_abs", "float_rel", "float_all", "spj"};
+            int cmIdx = compareModeIndex(pe.compareMode);
+            std::string cmPreview = cmIdx >= 0
+                                        ? std::string(kCompareModes[cmIdx])
+                                        : pe.compareMode + "（未识别，保留原值）";
             ImGui::SetNextItemWidth(-FLT_MIN);
-            ImGui::Combo("比较模式", &pe.compareIdx, modes, 7);
+            if (ImGui::BeginCombo("比较模式", cmPreview.c_str())) {
+                for (int i = 0; i < kCompareModeCount; ++i) {
+                    if (ImGui::Selectable(kCompareModes[i], cmIdx == i)) pe.compareMode = kCompareModes[i];
+                }
+                ImGui::EndCombo();
+            }
             ImGui::EndTable();
         }
         ImGui::TextUnformatted("题面 (Markdown)");
@@ -672,8 +663,6 @@ struct UiApp::Impl {
         ImGui::TextUnformatted("提示");
         InputMultiline("##hint", pe.hint, ImVec2(-FLT_MIN, 80.0f * S));
 
-        static const char* modes[] = {"text_strict", "text_line", "text_no_space",
-                                      "float_abs", "float_rel", "float_all", "spj"};
         ImGui::Spacing();
         if (primaryButton("保存")) {
             json fields = {
@@ -686,7 +675,7 @@ struct UiApp::Impl {
                 {"sample_output", pe.sampleOut},
                 {"time_limit", pe.timeLimit},
                 {"memory_limit", pe.memoryLimit},
-                {"compare_mode", modes[pe.compareIdx]}
+                {"compare_mode", pe.compareMode}
             };
             if (svc.saveProblem(curProblemId, fields)) {
                 notify("已保存");
@@ -766,13 +755,17 @@ struct UiApp::Impl {
             return;
         }
         ImGui::SetNextItemWidth(160.0f * S);
-        if (ImGui::Combo("语言", &langIdx, [](void*, int i, const char** out) {
-            *out = kLangs[i].name;
+        if (ImGui::Combo("语言", &langIdx, [](void* data, int i, const char** out) {
+            const auto& list = *(const std::vector<LangOption>*)data;
+            *out = list[(size_t)i].name.c_str();
             return true;
-        }, nullptr, kLangCount)) {
+        }, &langs, (int)langs.size())) {
         }
         ImGui::SameLine();
-        if (ImGui::Button("插入模板")) code = kLangs[langIdx].tmpl;
+        bool hasTmpl = langIdx >= 0 && langIdx < (int)langs.size() && !langs[(size_t)langIdx].tmpl.empty();
+        ImGui::BeginDisabled(!hasTmpl);
+        if (ImGui::Button("插入模板") && hasTmpl) code = langs[(size_t)langIdx].tmpl;
+        ImGui::EndDisabled();
         ImGui::SameLine();
         if (ImGui::Button("清空")) code.clear();
 
@@ -1142,11 +1135,14 @@ struct UiApp::Impl {
         }
         ImGui::Spacing();
         ImGui::SetNextItemWidth(160.0f * S);
-        if (ImGui::BeginCombo("语言", kLangs[langIdx].name)) {
-            for (int li = 0; li < kLangCount; ++li) {
-                if (ImGui::Selectable(kLangs[li].name, langIdx == li)) {
+        const char* curLangName = (langIdx >= 0 && langIdx < (int)langs.size())
+                                      ? langs[(size_t)langIdx].name.c_str()
+                                      : "";
+        if (ImGui::BeginCombo("语言", curLangName)) {
+            for (int li = 0; li < (int)langs.size(); ++li) {
+                if (ImGui::Selectable(langs[(size_t)li].name.c_str(), langIdx == li)) {
                     langIdx = li;
-                    code = kLangs[li].tmpl;
+                    code = langs[(size_t)li].tmpl;
                 }
             }
             ImGui::EndCombo();

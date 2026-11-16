@@ -121,4 +121,15 @@ clijudgepp [options]
 - `android`（JDK 17 + NDK 26.1，`assembleDebug` APK）
 
 构建前会把 `dxxjudges/clijudge` 检出到工作区 `clijudge/`，作为 include 源。
-推送 `v*` 标签时额外创建 Release 并上传各平台压缩包与 APK。
+主项目版本在 `build.yml` 的 `CLIJUDGE_REF` 中固定为具体 commit，
+上游 header 变更需要显式升级，避免 GUI 构建被动打挂。
+推送 `v*` 标签时额外创建 Release 并上传各平台压缩包与 APK；
+APK 的 `versionName` 取自 tag（`v1.2.3` → `1.2.3`），`versionCode` 取 CI 运行序号。
+
+## 测试
+
+```bash
+ctest --test-dir build --output-on-failure   # Markdown 解析 + 比较模式表
+./build/clijudgepp --selftest                # 数据目录探测与数据层只读冒烟
+```
+

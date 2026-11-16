@@ -129,3 +129,22 @@ else()
 
   install(TARGETS clijudgepp RUNTIME DESTINATION bin)
 endif()
+
+# ── 单元测试（仅桌面；Android 交叉构建不编测试） ─────────────────────
+if(NOT ANDROID)
+  option(CLIJUDGEPP_BUILD_TESTS "Build clijudgepp unit tests" ON)
+  if(CLIJUDGEPP_BUILD_TESTS)
+    enable_testing()
+    add_executable(clijudgepp_tests
+      tests/test_main.cpp
+      src/markdown.cpp)
+    target_include_directories(clijudgepp_tests PRIVATE
+      "${CLIJUDGE_INCLUDE_DIR}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(clijudgepp_tests PRIVATE imgui Threads::Threads)
+    if(WIN32 AND MINGW)
+      target_link_options(clijudgepp_tests PRIVATE -static)
+    endif()
+    add_test(NAME clijudgepp_tests COMMAND clijudgepp_tests)
+  endif()
+endif()

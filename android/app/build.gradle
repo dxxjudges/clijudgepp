@@ -2,6 +2,10 @@ plugins {
     id 'com.android.application'
 }
 
+// 版本号可由 CI 传入（tag 发版时联动），本地默认为 1.0 / 1
+def appVersionName = (project.findProperty('appVersionName') ?: '1.0').toString()
+def appVersionCode = (project.findProperty('appVersionCode') ?: '1').toString().toInteger()
+
 android {
     namespace 'org.dxxjudges.clijudgepp'
     compileSdk 34
@@ -11,8 +15,8 @@ android {
         applicationId 'org.dxxjudges.clijudgepp'
         minSdk 21
         targetSdk 34
-        versionCode 1
-        versionName '1.0'
+        versionCode appVersionCode
+        versionName appVersionName
 
         externalNativeBuild {
             cmake {

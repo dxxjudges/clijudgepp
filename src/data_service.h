@@ -27,11 +27,22 @@ struct JudgeOutcome {
     std::string detailJson;   // judge_detail
 };
 
+// 可提交语言：内置语言 + config.json 的 judge.custom_languages
+// （由 judge.h 的编译分发能力决定，不再硬编码不支持的扩展名）
+struct LangOption {
+    std::string name;   // 显示名（自定义语言用配置里的键名）
+    std::string ext;    // 扩展名，含点，如 ".cpp"
+    std::string tmpl;   // 插入模板（自定义语言为空）
+};
+
 class DataService {
 public:
     explicit DataService(std::string dataDir) : dir_(std::move(dataDir)) {}
 
     const std::string& dir() const { return dir_; }
+
+    // 与 judge.h 的编译分发保持一致的语言清单
+    std::vector<LangOption> languages() const;
 
     int countProblems();
     int countArticles();
