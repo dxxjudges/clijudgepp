@@ -64,7 +64,7 @@
         "end_time": "End time",
         "leaderboard": "Leaderboard",
         "no_problems": "This contest has no problems",
-        "problem_count": "Problems: %d",
+        "problem_count": "Problems: {0}",
         "problem_ids": "Problem IDs (comma separated)",
         "problem_submissions": "Submissions",
         "rank": "Rank",
@@ -75,7 +75,7 @@
       },
       "dialog": {
         "confirm_delete": "Confirm deletion",
-        "confirm_delete_body": "Delete %s? This cannot be undone.",
+        "confirm_delete_body": "Delete {0}? This cannot be undone.",
         "item_problem": "the problem (with all test cases)",
         "this_item": "this item"
       },
@@ -111,9 +111,9 @@
         "rejudging": "Rejudging...",
         "result": "Judge result",
         "running": "Judging, please wait...",
-        "score_line": "%s  %d / %d pts",
-        "subtask": "Subtask %d  (%d/%d)",
-        "time_memory": "Time %s    Memory %d KB"
+        "score_line": "{0}  {1} / {2} pts",
+        "subtask": "Subtask {0}  ({1}/{2})",
+        "time_memory": "Time {0}    Memory {1} KB"
       },
       "label": {
         "status": "Status: "
@@ -153,7 +153,7 @@
         "shared_data": "Shares the same data as the clijudge CLI: when placed in the same directory it uses that data/ folder, and write operations take the same cross-process data lock."
       },
       "problem": {
-        "bytes": "%d bytes",
+        "bytes": "{0} bytes",
         "compare_mode": "Compare mode",
         "compare_unknown": " (unrecognized, kept as is)",
         "hint": "Hint",
@@ -184,13 +184,13 @@
       "submission": {
         "detail": "Submission detail",
         "result": "Result",
-        "source": "Source: %s",
-        "submitted_at": "Submitted: %s",
+        "source": "Source: {0}",
+        "submitted_at": "Submitted: {0}",
         "submitter": "User",
-        "summary": "Score %d  Time %d ms  Memory %d KB  Rejudged %d times"
+        "summary": "Score {0}  Time {1} ms  Memory {2} KB  Rejudged {3} times"
       },
       "submissions": {
-        "count": "%d records (at most 1000 shown)",
+        "count": "{0} records (at most 1000 shown)",
         "empty": "No submissions"
       },
       "testcase": {

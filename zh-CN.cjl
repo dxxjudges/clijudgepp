@@ -64,7 +64,7 @@
         "end_time": "结束时间",
         "leaderboard": "排行榜",
         "no_problems": "比赛没有题目",
-        "problem_count": "题目数量: %d",
+        "problem_count": "题目数量: {0}",
         "problem_ids": "题目 ID（逗号分隔）",
         "problem_submissions": "该题提交",
         "rank": "排名",
@@ -75,7 +75,7 @@
       },
       "dialog": {
         "confirm_delete": "确认删除",
-        "confirm_delete_body": "确认删除%s？此操作不可撤销。",
+        "confirm_delete_body": "确认删除{0}？此操作不可撤销。",
         "item_problem": "题目（含全部测试点）",
         "this_item": "该项"
       },
@@ -111,9 +111,9 @@
         "rejudging": "重判中...",
         "result": "评测结果",
         "running": "评测中，请稍候...",
-        "score_line": "%s  %d / %d 分",
-        "subtask": "子任务 %d  (%d/%d)",
-        "time_memory": "用时 %s    内存 %d KB"
+        "score_line": "{0}  {1} / {2} 分",
+        "subtask": "子任务 {0}  ({1}/{2})",
+        "time_memory": "用时 {0}    内存 {1} KB"
       },
       "label": {
         "status": "状态: "
@@ -153,7 +153,7 @@
         "shared_data": "与 clijudge 命令行共享同一份数据：与 CLI 放在同一目录时自动使用其 data/ 目录，修改类操作持有相同的跨进程数据锁。"
       },
       "problem": {
-        "bytes": "%d 字节",
+        "bytes": "{0} 字节",
         "compare_mode": "比较模式",
         "compare_unknown": "（未识别，保留原值）",
         "hint": "提示",
@@ -184,13 +184,13 @@
       "submission": {
         "detail": "提交详情",
         "result": "结果",
-        "source": "源码: %s",
-        "submitted_at": "提交时间: %s",
+        "source": "源码: {0}",
+        "submitted_at": "提交时间: {0}",
         "submitter": "提交者",
-        "summary": "分数 %d  用时 %d ms  内存 %d KB  重判 %d 次"
+        "summary": "分数 {0}  用时 {1} ms  内存 {2} KB  重判 {3} 次"
       },
       "submissions": {
-        "count": "共 %d 条（最多显示 1000 条）",
+        "count": "共 {0} 条（最多显示 1000 条）",
         "empty": "暂无提交"
       },
       "testcase": {
