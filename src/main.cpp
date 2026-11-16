@@ -23,6 +23,7 @@
 
 #include "data_service.h"
 #include "gui_config.h"
+#include "icon_data.h"
 #include "markdown.h"
 #include "ui_app.h"
 
@@ -302,6 +303,18 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     if (!kAndroid && cfg.maximized) SDL_MaximizeWindow(window);
+
+    // 窗口/任务栏图标（Windows 的 exe 图标来自 .rc，这里覆盖 Linux 等平台的窗口图标）
+    {
+        SDL_Surface* icon = SDL_CreateRGBSurfaceWithFormatFrom(
+            const_cast<unsigned char*>(clijudge::gui::kIconRgba),
+            clijudge::gui::kIconSize, clijudge::gui::kIconSize, 32,
+            clijudge::gui::kIconSize * 4, SDL_PIXELFORMAT_RGBA32);
+        if (icon) {
+            SDL_SetWindowIcon(window, icon);
+            SDL_FreeSurface(icon);
+        }
+    }
 
     SDL_Renderer* renderer = SDL_CreateRenderer(
         window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);

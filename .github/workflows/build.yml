@@ -74,6 +74,7 @@ jobs:
           cp build/clijudgepp.exe dist/
           cp -f gui.example.json dist/gui.json
           cp -f LICENSE dist/LICENSE.txt
+          cp -f assets/icon.png dist/icon.png
 
       - uses: actions/upload-artifact@v4
         with:
@@ -128,6 +129,7 @@ jobs:
           ls dist/
           cp -f gui.example.json dist/gui.json
           cp -f LICENSE dist/LICENSE.txt
+          cp -f assets/icon.png dist/icon.png
 
       - uses: actions/upload-artifact@v4
         with:
@@ -182,6 +184,7 @@ jobs:
           ls dist/
           cp -f gui.example.json dist/gui.json
           cp -f LICENSE dist/LICENSE.txt
+          cp -f assets/icon.png dist/icon.png
 
       - uses: actions/upload-artifact@v4
         with:

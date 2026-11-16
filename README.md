@@ -133,6 +133,16 @@ ctest --test-dir build --output-on-failure   # Markdown 解析 + 比较模式表
 ./build/clijudgepp --selftest                # 数据目录探测与数据层只读冒烟
 ```
 
+## 图标
+
+`assets/icon.ico`（Windows exe）、`assets/icon.png`（Linux 分发）、
+`src/icon_data.h`（运行时窗口图标）与 Android 各密度 `ic_launcher.png`
+均由脚本生成，改设计后重新生成（需要 Pillow）：
+
+```bash
+python tools/make_icon.py
+```
+
 ## 许可证
 
 本项目以 [MIT License](LICENSE) 发布。
