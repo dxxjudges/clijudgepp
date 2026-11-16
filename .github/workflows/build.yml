@@ -281,6 +281,7 @@ jobs:
           sudo debootstrap --arch=i386 --variant=minbase bookworm /tmp/i386 \
             http://deb.debian.org/debian
           sudo cp /etc/resolv.conf /tmp/i386/etc/resolv.conf
+          sudo mkdir -p /tmp/i386/src
           sudo mount -t proc proc /tmp/i386/proc
           sudo mount --bind "$PWD" /tmp/i386/src
           sudo chroot /tmp/i386 /bin/bash -c '
