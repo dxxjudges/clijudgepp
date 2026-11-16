@@ -476,11 +476,16 @@ struct UiApp::Impl {
             return;
         }
         std::string st = sval(d, "status_abbr");
-        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(statusColor(st)),
-                           i18n::t("judge.score_line", "%s  %d / %d 分"), st.c_str(), ival(d, "total_score"),
-                           ival(d, "max_score"));
-        ImGui::Text(i18n::t("judge.time_memory", "用时 %s    内存 %d KB"), fmtMs(ival(d, "total_time_ms")).c_str(),
-                    ival(d, "max_memory_kb"));
+        ImGui::TextColored(
+            ImGui::ColorConvertU32ToFloat4(statusColor(st)), "%s",
+            i18n::tf("judge.score_line", "{0}  {1} / {2} 分",
+                     {st, std::to_string(ival(d, "total_score")),
+                      std::to_string(ival(d, "max_score"))})
+                .c_str());
+        ImGui::TextUnformatted(
+            i18n::tf("judge.time_memory", "用时 {0}    内存 {1} KB",
+                     {fmtMs(ival(d, "total_time_ms")), std::to_string(ival(d, "max_memory_kb"))})
+                .c_str());
         std::string ce = sval(d, "compile_error");
         if (!ce.empty()) {
             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(248, 113, 113, 255));
@@ -495,10 +500,11 @@ struct UiApp::Impl {
         int idx = 0;
         for (const auto& stj : d["subtasks"]) {
             ++idx;
-            char label[96];
-            std::snprintf(label, sizeof(label), i18n::t("judge.subtask", "子任务 %d  (%d/%d)"), ival(stj, "id", idx),
-                          ival(stj, "score"), ival(stj, "max_score"));
-            if (!ImGui::CollapsingHeader(label)) continue;
+            std::string label = i18n::tf("judge.subtask", "子任务 {0}  ({1}/{2})",
+                                         {std::to_string(ival(stj, "id", idx)),
+                                          std::to_string(ival(stj, "score")),
+                                          std::to_string(ival(stj, "max_score"))});
+            if (!ImGui::CollapsingHeader(label.c_str())) continue;
             if (!stj.contains("test_cases") || !stj["test_cases"].is_array()) continue;
             if (ImGui::BeginTable("tc", 5,
                                   ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
@@ -575,7 +581,7 @@ struct UiApp::Impl {
         ImGui::TextUnformatted("CliJudge++");
         ImGui::SetWindowFontScale(1.0f);
         ImGui::PopStyleColor();
-        ImGui::TextDisabled(i18n::t("app.tagline", "本地判题管理"));
+        ImGui::TextDisabled("%s", i18n::t("app.tagline", "本地判题管理"));
         ImGui::Separator();
         navButton(i18n::t("nav.overview", "概览"), "overview");
         navButton(i18n::t("nav.problems", "题目"), "problems");
@@ -583,18 +589,18 @@ struct UiApp::Impl {
         navButton(i18n::t("nav.contests", "比赛"), "contests");
         navButton(i18n::t("nav.submissions", "提交记录"), "submissions");
         ImGui::Separator();
-        ImGui::TextDisabled(i18n::t("overview.data_dir", "数据目录"));
+        ImGui::TextDisabled("%s", i18n::t("overview.data_dir", "数据目录"));
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 170.0f * S);
         ImGui::TextUnformatted(opt.dataDir.c_str());
         ImGui::PopTextWrapPos();
         if (!opt.judgeAvailable) {
             ImGui::Separator();
             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(251, 191, 36, 255));
-            ImGui::TextWrapped(i18n::t("mobile.manage_only", "移动端仅支持管理与浏览，本地编译评测不可用。"));
+            ImGui::TextWrapped("%s", i18n::t("mobile.manage_only", "移动端仅支持管理与浏览，本地编译评测不可用。"));
             ImGui::PopStyleColor();
         }
         ImGui::Separator();
-        ImGui::TextDisabled(i18n::t("lang.display", "显示语言"));
+        ImGui::TextDisabled("%s", i18n::t("lang.display", "显示语言"));
         drawLanguageSelector(ImGui::GetContentRegionAvail().x);
         ImGui::EndChild();
     }
@@ -652,14 +658,14 @@ struct UiApp::Impl {
             ImGui::SameLine();
             ImGui::TextColored(ImVec4(0.58f, 0.77f, 0.99f, 1.0f), "%s", opt.dataDir.c_str());
             ImGui::TextWrapped(
-                i18n::t("overview.shared_data", "与 clijudge 命令行共享同一份数据：与 CLI 放在同一目录时自动使用其 data/ 目录，修改类操作持有相同的跨进程数据锁。"));
+                "%s", i18n::t("overview.shared_data", "与 clijudge 命令行共享同一份数据：与 CLI 放在同一目录时自动使用其 data/ 目录，修改类操作持有相同的跨进程数据锁。"));
             ImGui::Separator();
             if (opt.judgeAvailable) {
-                ImGui::TextColored(ImVec4(0.45f, 0.84f, 0.55f, 1.0f), i18n::t("overview.judge_available", "评测可用"));
+                ImGui::TextColored(ImVec4(0.45f, 0.84f, 0.55f, 1.0f), "%s", i18n::t("overview.judge_available", "评测可用"));
             } else {
-                ImGui::TextColored(ImVec4(0.98f, 0.72f, 0.27f, 1.0f), i18n::t("overview.judge_unavailable", "评测不可用（移动端）"));
+                ImGui::TextColored(ImVec4(0.98f, 0.72f, 0.27f, 1.0f), "%s", i18n::t("overview.judge_unavailable", "评测不可用（移动端）"));
             }
-            ImGui::TextDisabled(i18n::t("overview.refresh_hint", "按 F5 或点击下方按钮刷新数据"));
+            ImGui::TextDisabled("%s", i18n::t("overview.refresh_hint", "按 F5 或点击下方按钮刷新数据"));
             if (ImGui::Button(i18n::t("action.refresh_data", "刷新数据"))) {
                 markAllDirty();
                 notify(i18n::t("toast.refreshed", "已刷新"));
@@ -899,9 +905,13 @@ struct UiApp::Impl {
                 ImGui::TableNextColumn();
                 ImGui::Text("%d MB", ival(tc, "memory_limit"));
                 ImGui::TableNextColumn();
-                ImGui::Text(i18n::t("problem.bytes", "%d 字节"), (int)sval(tc, "input_data").size());
+                ImGui::TextUnformatted(i18n::tf("problem.bytes", "{0} 字节",
+                                                {std::to_string((int)sval(tc, "input_data").size())})
+                                           .c_str());
                 ImGui::TableNextColumn();
-                ImGui::Text(i18n::t("problem.bytes", "%d 字节"), (int)sval(tc, "output_data").size());
+                ImGui::TextUnformatted(i18n::tf("problem.bytes", "{0} 字节",
+                                                {std::to_string((int)sval(tc, "output_data").size())})
+                                           .c_str());
                 ImGui::TableNextColumn();
                 ImGui::PushID(id);
                 if (ImGui::SmallButton(i18n::t("common.delete", "删除"))) {
@@ -919,8 +929,8 @@ struct UiApp::Impl {
     void drawSubmitTab() {
         if (!opt.judgeAvailable) {
             ImGui::TextColored(ImVec4(0.98f, 0.72f, 0.27f, 1.0f),
-                               i18n::t("mobile.no_judge", "Android 端不支持本地编译评测。"));
-            ImGui::TextWrapped(i18n::t("mobile.judge_requires_toolchain", "判题需要调用外部编译器（g++ 等）并运行可执行文件，移动端无法完成。请使用桌面版 clijudgepp 或 clijudge 命令行进行评测。"));
+                               "%s", i18n::t("mobile.no_judge", "Android 端不支持本地编译评测。"));
+            ImGui::TextWrapped("%s", i18n::t("mobile.judge_requires_toolchain", "判题需要调用外部编译器（g++ 等）并运行可执行文件，移动端无法完成。请使用桌面版 clijudgepp 或 clijudge 命令行进行评测。"));
             return;
         }
         ImGui::SetNextItemWidth(160.0f * S);
@@ -942,7 +952,7 @@ struct UiApp::Impl {
                        ImGuiInputTextFlags_AllowTabInput);
 
         if (task == Task::Submit) {
-            ImGui::TextColored(ImVec4(0.58f, 0.77f, 0.99f, 1.0f), i18n::t("judge.running", "评测中，请稍候..."));
+            ImGui::TextColored(ImVec4(0.58f, 0.77f, 0.99f, 1.0f), "%s", i18n::t("judge.running", "评测中，请稍候..."));
         } else if (primaryButton(i18n::t("action.submit", "提交评测"), ImVec2(140.0f * S, 34.0f * S))) {
             startSubmit(false);
         }
@@ -984,7 +994,7 @@ struct UiApp::Impl {
             if (!any) {
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                ImGui::TextDisabled(i18n::t("submissions.empty", "暂无提交"));
+                ImGui::TextDisabled("%s", i18n::t("submissions.empty", "暂无提交"));
             }
             ImGui::EndTable();
         }
@@ -1093,7 +1103,7 @@ struct UiApp::Impl {
         }
         ImGui::SameLine();
         if (ImGui::Button(i18n::t("common.refresh", "刷新"))) dirtyContests = true;
-        ImGui::TextDisabled(i18n::t("contest.time_hint", "开始/结束时间格式: YYYY-MM-DD HH:MM:SS（留空表示不限时）"));
+        ImGui::TextDisabled("%s", i18n::t("contest.time_hint", "开始/结束时间格式: YYYY-MM-DD HH:MM:SS（留空表示不限时）"));
 
         ImGui::Spacing();
         if (ImGui::BeginTable("contests", 5,
@@ -1160,7 +1170,9 @@ struct UiApp::Impl {
                 contestTab = 0;
                 json ids = curContest.contains("problem_ids") ? curContest["problem_ids"]
                                                               : json::array();
-                ImGui::Text(i18n::t("contest.problem_count", "题目数量: %d"), (int)ids.size());
+                ImGui::TextUnformatted(i18n::tf("contest.problem_count", "题目数量: {0}",
+                                                {std::to_string((int)ids.size())})
+                                           .c_str());
                 if (ImGui::BeginTable("cprobs", 2,
                                       ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
                     ImGui::TableSetupColumn(i18n::t("common.index", "序号"), ImGuiTableColumnFlags_WidthFixed, 60 * S);
@@ -1230,7 +1242,7 @@ struct UiApp::Impl {
         json ids = curContest.contains("problem_ids") ? curContest["problem_ids"]
                                                       : json::array();
         if (ids.empty()) {
-            ImGui::TextDisabled(i18n::t("contest.no_problems", "比赛没有题目"));
+            ImGui::TextDisabled("%s", i18n::t("contest.no_problems", "比赛没有题目"));
             return;
         }
         if (contestProblemIdx < 1) contestProblemIdx = 1;
@@ -1308,7 +1320,7 @@ struct UiApp::Impl {
 
         if (!opt.judgeAvailable) {
             ImGui::TextColored(ImVec4(0.98f, 0.72f, 0.27f, 1.0f),
-                               i18n::t("mobile.contest_judge", "移动端不支持比赛本地评测。"));
+                               "%s", i18n::t("mobile.contest_judge", "移动端不支持比赛本地评测。"));
             return;
         }
         ImGui::Spacing();
@@ -1328,7 +1340,7 @@ struct UiApp::Impl {
         InputMultiline("##ccode", code, ImVec2(-FLT_MIN, 160.0f * S),
                        ImGuiInputTextFlags_AllowTabInput);
         if (task == Task::ContestSubmit) {
-            ImGui::TextColored(ImVec4(0.58f, 0.77f, 0.99f, 1.0f), i18n::t("judge.running", "评测中，请稍候..."));
+            ImGui::TextColored(ImVec4(0.58f, 0.77f, 0.99f, 1.0f), "%s", i18n::t("judge.running", "评测中，请稍候..."));
         } else if (primaryButton(i18n::t("action.submit_contest", "提交比赛题目"))) {
             startSubmit(true);
         }
@@ -1346,7 +1358,9 @@ struct UiApp::Impl {
         }
         if (ImGui::Button(i18n::t("common.refresh", "刷新"))) dirtySubs = true;
         ImGui::SameLine();
-        ImGui::TextDisabled(i18n::t("submissions.count", "共 %d 条（最多显示 1000 条）"), (int)submissions.size());
+        ImGui::TextDisabled("%s", i18n::tf("submissions.count", "共 {0} 条（最多显示 1000 条）",
+                                           {std::to_string((int)submissions.size())})
+                                      .c_str());
         ImGui::Spacing();
         if (ImGui::BeginTable("subs", 7,
                               ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
@@ -1523,27 +1537,35 @@ struct UiApp::Impl {
                 ImGui::Text("#%d  %s", ival(curSubmission, "id"),
                             sval(curSubmission, "problem_title").c_str());
                 std::string st = sval(curSubmission, "status");
-                ImGui::Text(i18n::t("label.status", "状态: "));
+                ImGui::Text("%s", i18n::t("label.status", "状态: "));
                 ImGui::SameLine();
                 ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(statusColor(st)), "%s",
                                    st.c_str());
-                ImGui::Text(i18n::t("submission.summary", "分数 %d  用时 %d ms  内存 %d KB  重判 %d 次"),
-                            ival(curSubmission, "score"), ival(curSubmission, "time_used"),
-                            ival(curSubmission, "memory_used"),
-                            ival(curSubmission, "judge_times", 1));
-                ImGui::Text(i18n::t("submission.submitted_at", "提交时间: %s"), sval(curSubmission, "submitted_at").c_str());
-                ImGui::Text(i18n::t("submission.source", "源码: %s"), sval(curSubmission, "file_path").c_str());
+                ImGui::TextUnformatted(
+                    i18n::tf("submission.summary",
+                             "分数 {0}  用时 {1} ms  内存 {2} KB  重判 {3} 次",
+                             {std::to_string(ival(curSubmission, "score")),
+                              std::to_string(ival(curSubmission, "time_used")),
+                              std::to_string(ival(curSubmission, "memory_used")),
+                              std::to_string(ival(curSubmission, "judge_times", 1))})
+                        .c_str());
+                ImGui::TextUnformatted(i18n::tf("submission.submitted_at", "提交时间: {0}",
+                                                {sval(curSubmission, "submitted_at")})
+                                           .c_str());
+                ImGui::TextUnformatted(i18n::tf("submission.source", "源码: {0}",
+                                                {sval(curSubmission, "file_path")})
+                                           .c_str());
                 ImGui::Separator();
                 ImGui::BeginChild("detail", ImVec2(620.0f * S, 340.0f * S), true);
                 if (curSubmission.contains("judge_detail")) {
                     drawJudgeDetail(curSubmission["judge_detail"].dump());
                 } else {
-                    ImGui::TextDisabled(i18n::t("judge.no_detail", "暂无评测详情"));
+                    ImGui::TextDisabled("%s", i18n::t("judge.no_detail", "暂无评测详情"));
                 }
                 ImGui::EndChild();
                 if (opt.judgeAvailable) {
                     if (task == Task::Rejudge) {
-                        ImGui::TextColored(ImVec4(0.58f, 0.77f, 0.99f, 1.0f), i18n::t("judge.rejudging", "重判中..."));
+                        ImGui::TextColored(ImVec4(0.58f, 0.77f, 0.99f, 1.0f), "%s", i18n::t("judge.rejudging", "重判中..."));
                     } else if (primaryButton(i18n::t("action.rejudge", "重判"))) {
                         task = Task::Rejudge;
                         fut = svc.rejudgeAsync(ival(curSubmission, "id"));
@@ -1567,7 +1589,8 @@ struct UiApp::Impl {
             else if (confirmKind == 2) what = i18n::t("nav.articles", "文章");
             else if (confirmKind == 3) what = i18n::t("nav.contests", "比赛");
             else if (confirmKind == 4) what = i18n::t("problem.testcase", "测试点");
-            ImGui::Text(i18n::t("dialog.confirm_delete_body", "确认删除%s？此操作不可撤销。"), what);
+            ImGui::TextUnformatted(
+                i18n::tf("dialog.confirm_delete_body", "确认删除{0}？此操作不可撤销。", {what}).c_str());
             ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(220, 38, 38, 255));
             if (ImGui::Button(i18n::t("common.delete", "删除"))) {
                 if (confirmKind == 1) {
@@ -1615,15 +1638,15 @@ struct UiApp::Impl {
             return;
 
         ImGui::TextWrapped(
-            i18n::t("lang.hint", "语言包存放在 <data>/langs，与 clijudge CLI 共用"));
+            "%s", i18n::t("lang.hint", "语言包存放在 <data>/langs，与 clijudge CLI 共用"));
         ImGui::Separator();
         if (netTask == NetTask::Fetch) {
-            ImGui::TextDisabled(i18n::t("lang.fetching", "正在获取在线语言列表..."));
+            ImGui::TextDisabled("%s", i18n::t("lang.fetching", "正在获取在线语言列表..."));
         } else if (netTask == NetTask::Download) {
             std::string msg = i18n::tf("lang.downloading", "正在下载 {0}...", {downloadCode});
             ImGui::TextDisabled("%s", msg.c_str());
         } else if (onlineFetched && onlineLangs.empty()) {
-            ImGui::TextWrapped(i18n::t("lang.empty", "没有获取到在线语言（请检查网络或语言源设置）"));
+            ImGui::TextWrapped("%s", i18n::t("lang.empty", "没有获取到在线语言（请检查网络或语言源设置）"));
         } else if (onlineFetched) {
             ImGui::BeginChild("##online_langs", ImVec2(380.0f * S, 220.0f * S), true);
             for (const auto& code : onlineLangs) {

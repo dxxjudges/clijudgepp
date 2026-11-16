@@ -51,7 +51,8 @@
     {"contest.end_time", "End time"},
     {"contest.leaderboard", "Leaderboard"},
     {"contest.no_problems", "This contest has no problems"},
-    {"contest.problem_count", "Problems: %d"},
+    {"contest.problem_count", "Problems: {0}"},
+
     {"contest.problem_ids", "Problem IDs (comma separated)"},
     {"contest.problem_submissions", "Submissions"},
     {"contest.rank", "Rank"},
@@ -60,7 +61,8 @@
     {"contest.total_score", "Total"},
     {"contest.user", "User"},
     {"dialog.confirm_delete", "Confirm deletion"},
-    {"dialog.confirm_delete_body", "Delete %s? This cannot be undone."},
+    {"dialog.confirm_delete_body", "Delete {0}? This cannot be undone."},
+
     {"dialog.item_problem", "the problem (with all test cases)"},
     {"dialog.this_item", "this item"},
     {"error.contest_load", "Failed to load contest"},
@@ -90,9 +92,12 @@
     {"judge.rejudging", "Rejudging..."},
     {"judge.result", "Judge result"},
     {"judge.running", "Judging, please wait..."},
-    {"judge.score_line", "%s  %d / %d pts"},
-    {"judge.subtask", "Subtask %d  (%d/%d)"},
-    {"judge.time_memory", "Time %s    Memory %d KB"},
+    {"judge.score_line", "{0}  {1} / {2} pts"},
+
+    {"judge.subtask", "Subtask {0}  ({1}/{2})"},
+
+    {"judge.time_memory", "Time {0}    Memory {1} KB"},
+
     {"label.status", "Status: "},
     {"lang.display", "Display language"},
     {"lang.download", "Download"},
@@ -120,7 +125,8 @@
     {"overview.judge_unavailable", "Judge unavailable (mobile)"},
     {"overview.refresh_hint", "Press F5 or use the button below to refresh"},
     {"overview.shared_data", "Shares the same data as the clijudge CLI: when placed in the same directory it uses that data/ folder, and write operations take the same cross-process data lock."},
-    {"problem.bytes", "%d bytes"},
+    {"problem.bytes", "{0} bytes"},
+
     {"problem.compare_mode", "Compare mode"},
     {"problem.compare_unknown", " (unrecognized, kept as is)"},
     {"problem.hint", "Hint"},
@@ -147,11 +153,15 @@
     {"statement.sample_output_inline", "\n\n## Sample output\n\n```\n"},
     {"submission.detail", "Submission detail"},
     {"submission.result", "Result"},
-    {"submission.source", "Source: %s"},
-    {"submission.submitted_at", "Submitted: %s"},
+    {"submission.source", "Source: {0}"},
+
+    {"submission.submitted_at", "Submitted: {0}"},
+
     {"submission.submitter", "User"},
-    {"submission.summary", "Score %d  Time %d ms  Memory %d KB  Rejudged %d times"},
-    {"submissions.count", "%d records (at most 1000 shown)"},
+    {"submission.summary", "Score {0}  Time {1} ms  Memory {2} KB  Rejudged {3} times"},
+
+    {"submissions.count", "{0} records (at most 1000 shown)"},
+
     {"submissions.empty", "No submissions"},
     {"testcase.input_data", "Input data"},
     {"testcase.memory_hint", "Memory (0=default)"},
