@@ -374,8 +374,8 @@
       </div>
       <div class="badges">
         <span class="badge"><b>MIT</b> License</span>
-        <span class="badge">Windows x64</span>
-        <span class="badge">Linux x64 / arm64</span>
+        <span class="badge">Windows x64 / x86 / arm64</span>
+        <span class="badge">Linux x64 / x86 / arm64</span>
         <span class="badge"><b>Android</b> APK</span>
         <span class="badge">C++17 · 无 Qt / 无 Electron</span>
       </div>
@@ -514,7 +514,7 @@ cmake --build build -j
           </ul>
           <div class="cta" style="margin-top:24px">
             <a class="btn btn-primary" href="https://github.com/dxxjudges/clijudgepp/releases/latest">
-              下载 APK <small>app-debug.apk</small>
+              下载 APK <small>clijudgepp-android.apk</small>
             </a>
           </div>
         </div>
@@ -540,17 +540,22 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk</pre>
     <div class="wrap">
       <div class="sec-head">
         <h2>构建矩阵</h2>
-        <p>每次 push 与 PR 都会在四个平台构建，标签发布时上传到 Releases。</p>
+        <p>每次 push 与 PR 都会构建 6 个桌面平台产物与 Android APK，标签发布时统一上传到 Releases。</p>
       </div>
       <table class="matrix">
         <tr><th>平台</th><th>工具链</th><th>产物</th></tr>
         <tr><td>Windows x64</td><td><code>MSYS2 MinGW64 · Ninja</code></td><td><code>clijudgepp-windows-x64.zip</code></td></tr>
-        <tr><td>Linux x64</td><td><code>GCC · CMake</code></td><td><code>clijudgepp-linux-x64.tar.gz</code></td></tr>
-        <tr><td>Linux arm64</td><td><code>aarch64 交叉编译</code></td><td><code>clijudgepp-linux-arm64.tar.gz</code></td></tr>
-        <tr><td>Android</td><td><code>AGP 8.7 · NDK 26.1 · JDK 17</code></td><td><code>clijudgepp-android (APK)</code></td></tr>
+        <tr><td>Windows x86</td><td><code>MSYS2 MinGW32 · Ninja</code></td><td><code>clijudgepp-windows-x86.zip</code></td></tr>
+        <tr><td>Windows arm64</td><td><code>llvm-mingw · 交叉编译</code></td><td><code>clijudgepp-windows-arm64.zip</code></td></tr>
+        <tr><td>Linux x64</td><td><code>GCC · CMake</code></td><td><code>clijudgepp-linux-x64.zip</code></td></tr>
+        <tr><td>Linux x86</td><td><code>i386 Debian chroot · GCC</code></td><td><code>clijudgepp-linux-x86.zip</code></td></tr>
+        <tr><td>Linux arm64</td><td><code>原生 ARM64 runner · GCC</code></td><td><code>clijudgepp-linux-arm64.zip</code></td></tr>
+        <tr><td>Android</td><td><code>AGP 8.7 · NDK 26.1 · JDK 17</code></td><td><code>clijudgepp-android.apk</code></td></tr>
       </table>
       <p style="color:var(--muted);font-size:14px;margin-top:18px">
-        单元测试覆盖 Markdown 纯文本抽取与比较模式表；桌面构建会执行 <code>ctest</code> 与 <code>--selftest</code> 冒烟。
+        单元测试覆盖 Markdown 纯文本抽取、比较模式表与语言包回退；可运行的平台会执行 <code>ctest</code> 与
+        <code>--selftest</code> 冒烟（Windows arm64 在 x64 runner 上只能构建，需在 Windows on ARM 设备运行）。
+        Linux x86 在 32 位 chroot 内原生构建并跑测试。
         主项目 header 在 CI 中以固定 commit 检出，升级需显式修改 <code>CLIJUDGE_REF</code>。
       </p>
     </div>
