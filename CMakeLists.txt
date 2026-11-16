@@ -96,6 +96,8 @@ set(GUI_SOURCES
   src/markdown.cpp
   src/data_service.cpp
   src/ui_app.cpp
+  src/i18n.cpp
+  src/i18n_online.cpp
   src/miniz_impl.cpp)
 
 if(ANDROID)
@@ -103,7 +105,8 @@ if(ANDROID)
   target_include_directories(main PRIVATE
     "${CLIJUDGE_INCLUDE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/src")
-  target_link_libraries(main PRIVATE imgui Threads::Threads log android)
+  # ${CMAKE_DL_LIBS}: lang.h 的 HTTP 客户端运行时 dlopen OpenSSL
+  target_link_libraries(main PRIVATE imgui Threads::Threads log android ${CMAKE_DL_LIBS})
   set_target_properties(main PROPERTIES OUTPUT_NAME "main")
 else()
   add_executable(clijudgepp ${GUI_SOURCES})
@@ -137,7 +140,8 @@ if(NOT ANDROID)
     enable_testing()
     add_executable(clijudgepp_tests
       tests/test_main.cpp
-      src/markdown.cpp)
+      src/markdown.cpp
+      src/i18n.cpp)
     target_include_directories(clijudgepp_tests PRIVATE
       "${CLIJUDGE_INCLUDE_DIR}"
       "${CMAKE_CURRENT_SOURCE_DIR}/src")

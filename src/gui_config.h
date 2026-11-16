@@ -7,7 +7,8 @@
 //     "font_path": "",         // 空 = 自动挑选系统中文字体
 //     "window_width": 1280,
 //     "window_height": 800,
-//     "maximized": false
+//     "maximized": false,
+//     "lang": ""               // 显示语言代码（由界面内语言选择写入，空 = 跟随 CLI/默认中文）
 //   }
 //
 // 桌面端数据目录探测顺序:
@@ -38,6 +39,7 @@ struct GuiConfig {
     int windowWidth = 1280;
     int windowHeight = 800;
     bool maximized = false;
+    std::string lang;             // 空 = 跟随 CLI config.json / 默认中文
 };
 
 inline std::string guiConfigPath() {
@@ -78,6 +80,8 @@ inline GuiConfig loadGuiConfigAt(const std::string& path) {
             cfg.windowHeight = j["window_height"].get<int>();
         if (j.contains("maximized") && j["maximized"].is_boolean())
             cfg.maximized = j["maximized"].get<bool>();
+        if (j.contains("lang") && j["lang"].is_string())
+            cfg.lang = j["lang"].get<std::string>();
     } catch (...) {
         // 配置损坏时使用默认值，不影响启动
     }

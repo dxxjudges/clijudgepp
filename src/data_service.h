@@ -35,6 +35,13 @@ struct LangOption {
     std::string tmpl;   // 插入模板（自定义语言为空）
 };
 
+// 导入/导出结果：message 为已本地化的提示文案
+struct IoResult {
+    bool ok = false;
+    int id = -1;
+    std::string message;
+};
+
 class DataService {
 public:
     explicit DataService(std::string dataDir) : dir_(std::move(dataDir)) {}
@@ -74,6 +81,12 @@ public:
 
     json submissionList(int max = 500);
     json submissionGet(int id);
+
+    // 与 CLI 相同的导入/导出（题目: JSON/ZIP；比赛: CDF）
+    IoResult exportProblem(int id, const std::string& path);
+    IoResult importProblem(const std::string& path);
+    IoResult exportContest(int id, const std::string& path);
+    IoResult importContest(const std::string& path);
 
     // 异步评测（仅桌面端）
     std::future<JudgeOutcome> submitProblemAsync(int problemId, std::string source,

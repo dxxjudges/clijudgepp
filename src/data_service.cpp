@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <set>
 
 #include "platform.h"
 #include "problem.h"
@@ -14,6 +15,7 @@
 #include "submit.h"
 #include "judge.h"
 #include "settings.h"
+#include "i18n.h"
 
 namespace clijudge {
 namespace gui {
@@ -313,7 +315,7 @@ std::future<JudgeOutcome> DataService::submitProblemAsync(int problemId, std::st
         JudgeOutcome out;
         std::string path = DataService(dir).writeSourceFile(source, ext);
         if (path.empty()) {
-            out.error = "无法写入源码文件";
+            out.error = i18n::t("error.source_write", "无法写入源码文件");
             return out;
         }
 
@@ -322,14 +324,14 @@ std::future<JudgeOutcome> DataService::submitProblemAsync(int problemId, std::st
         {
             WriteGuard guard(dir);
             if (!guard.ok()) {
-                out.error = "无法获取数据锁";
+                out.error = i18n::t("error.lock", "无法获取数据锁");
                 return out;
             }
             problem::ProblemStore ps(dir);
             pv = ps.view(problemId);
         }
         if (pv.is_null()) {
-            out.error = "题目不存在";
+            out.error = i18n::t("error.problem_missing", "题目不存在");
             return out;
         }
 
@@ -340,7 +342,7 @@ std::future<JudgeOutcome> DataService::submitProblemAsync(int problemId, std::st
         {
             WriteGuard guard(dir);
             if (!guard.ok()) {
-                out.error = "无法获取数据锁，评测结果未保存";
+                out.error = i18n::t("error.lock_unsaved", "无法获取数据锁，评测结果未保存");
                 return out;
             }
             submit::Submission sub;
@@ -373,7 +375,7 @@ std::future<JudgeOutcome> DataService::submitContestAsync(int contestId, int pro
         JudgeOutcome out;
         std::string path = DataService(dir).writeSourceFile(source, ext);
         if (path.empty()) {
-            out.error = "无法写入源码文件";
+            out.error = i18n::t("error.source_write", "无法写入源码文件");
             return out;
         }
 
@@ -383,20 +385,20 @@ std::future<JudgeOutcome> DataService::submitContestAsync(int contestId, int pro
         {
             WriteGuard guard(dir);
             if (!guard.ok()) {
-                out.error = "无法获取数据锁";
+                out.error = i18n::t("error.lock", "无法获取数据锁");
                 return out;
             }
             contest::ContestStore cs(dir);
             problemId = cs.getContestProblemId(contestId, problemIndex);
             if (problemId < 0) {
-                out.error = "比赛题目不存在";
+                out.error = i18n::t("error.contest_problem_missing", "比赛题目不存在");
                 return out;
             }
             problem::ProblemStore ps(dir);
             pv = ps.view(problemId);
         }
         if (pv.is_null()) {
-            out.error = "题目不存在";
+            out.error = i18n::t("error.problem_missing", "题目不存在");
             return out;
         }
 
@@ -408,7 +410,7 @@ std::future<JudgeOutcome> DataService::submitContestAsync(int contestId, int pro
         {
             WriteGuard guard(dir);
             if (!guard.ok()) {
-                out.error = "无法获取数据锁，评测结果未保存";
+                out.error = i18n::t("error.lock_unsaved", "无法获取数据锁，评测结果未保存");
                 return out;
             }
             json submission = {
@@ -445,7 +447,7 @@ std::future<JudgeOutcome> DataService::submitContestAsync(int contestId, int pro
             if (!submissions.is_array()) submissions = json::array();
             submissions.push_back(submission);
             if (!platform::writeFileAtomic(submissionsPath, submissions.dump(2))) {
-                out.error = "写入比赛提交记录失败";
+                out.error = i18n::t("error.contest_write", "写入比赛提交记录失败");
                 return out;
             }
 
@@ -472,26 +474,26 @@ std::future<JudgeOutcome> DataService::rejudgeAsync(int submissionId) {
         {
             WriteGuard guard(dir);
             if (!guard.ok()) {
-                out.error = "无法获取数据锁";
+                out.error = i18n::t("error.lock", "无法获取数据锁");
                 return out;
             }
             submit::SubmitStore ss(dir);
             sub = ss.getSubmission(submissionId);
             if (sub.is_null()) {
-                out.error = "提交记录不存在";
+                out.error = i18n::t("error.submission_missing", "提交记录不存在");
                 return out;
             }
             path = sub.value("file_path", "");
             pid = sub.value("problem_id", 0);
             if (!fs::exists(path)) {
-                out.error = "源码文件不存在: " + path;
+                out.error = i18n::t("error.source_missing", "源码文件不存在: ") + path;
                 return out;
             }
             problem::ProblemStore ps(dir);
             pv = ps.view(pid);
         }
         if (pv.is_null()) {
-            out.error = "题目不存在";
+            out.error = i18n::t("error.problem_missing", "题目不存在");
             return out;
         }
 
@@ -503,7 +505,7 @@ std::future<JudgeOutcome> DataService::rejudgeAsync(int submissionId) {
         {
             WriteGuard guard(dir);
             if (!guard.ok()) {
-                out.error = "无法获取数据锁，重判结果未保存";
+                out.error = i18n::t("error.lock_rejudge_unsaved", "无法获取数据锁，重判结果未保存");
                 return out;
             }
             json updates = {
@@ -521,6 +523,152 @@ std::future<JudgeOutcome> DataService::rejudgeAsync(int submissionId) {
         }
         return out;
     });
+}
+
+// ── 导入/导出（复用 CLI 的 problem::cmdExport/cmdImport、contest::cmdExportCdf/cmdImportCdf）──
+
+namespace {
+
+// 相对路径按可执行文件目录解析，避免 GUI 的工作目录不确定
+std::string resolveIoPath(const std::string& path) {
+    if (path.empty()) return "";
+    std::filesystem::path p(path);
+    if (p.is_relative()) p = std::filesystem::path(platform::exeDir()) / p;
+    return p.lexically_normal().string();
+}
+
+bool ensureParentDir(const std::string& path) {
+    std::filesystem::path parent = std::filesystem::path(path).parent_path();
+    if (parent.empty()) return true;
+    std::error_code ec;
+    std::filesystem::create_directories(parent, ec);
+    return !ec;
+}
+
+} // namespace
+
+IoResult DataService::exportProblem(int id, const std::string& path) {
+    IoResult r;
+    std::string full = resolveIoPath(path);
+    if (full.empty()) {
+        r.message = i18n::ts("io.path_required", "请填写文件路径");
+        return r;
+    }
+    if (!ensureParentDir(full)) {
+        r.message = i18n::ts("io.export_failed", "导出失败（无法写入目标路径）");
+        return r;
+    }
+    if (problem::cmdExport(dir_, id, full) != 0) {
+        r.message = i18n::ts("io.export_failed", "导出失败（无法写入目标路径）");
+        return r;
+    }
+    r.ok = true;
+    r.id = id;
+    r.message = i18n::tf("toast.exported", "已导出到 {0}", {full});
+    return r;
+}
+
+IoResult DataService::importProblem(const std::string& path) {
+    IoResult r;
+    std::string full = resolveIoPath(path);
+    if (full.empty() || !std::filesystem::exists(full)) {
+        r.message = i18n::tf("io.file_missing", "文件不存在：{0}", {path});
+        return r;
+    }
+
+    WriteGuard guard(dir_);
+    if (!guard.ok()) {
+        r.message = i18n::ts("error.lock", "无法获取数据锁");
+        return r;
+    }
+
+    std::set<int> before;
+    {
+        problem::ProblemStore store(dir_);
+        for (const auto& item : store.list(1, 100000000)) before.insert(item.value("id", 0));
+    }
+    if (problem::cmdImport(dir_, full) != 0) {
+        r.message = i18n::ts("io.import_failed", "导入失败（格式不支持或内容无效）");
+        return r;
+    }
+
+    int newId = -1;
+    {
+        problem::ProblemStore store(dir_);
+        for (const auto& item : store.list(1, 100000000)) {
+            int id = item.value("id", 0);
+            if (!before.count(id)) newId = id;
+        }
+    }
+    r.ok = true;
+    r.id = newId;
+    r.message = newId > 0
+                    ? i18n::tf("toast.problem_imported", "已导入题目 #{0}",
+                               {std::to_string(newId)})
+                    : i18n::ts("toast.problem_imported_plain", "题目已导入");
+    return r;
+}
+
+IoResult DataService::exportContest(int id, const std::string& path) {
+    IoResult r;
+    std::string full = resolveIoPath(path);
+    if (full.empty()) {
+        r.message = i18n::ts("io.path_required", "请填写文件路径");
+        return r;
+    }
+    if (!ensureParentDir(full)) {
+        r.message = i18n::ts("io.export_failed", "导出失败（无法写入目标路径）");
+        return r;
+    }
+    if (contest::cmdExportCdf(dir_, id, full) != 0) {
+        r.message = i18n::ts("io.export_failed", "导出失败（无法写入目标路径）");
+        return r;
+    }
+    r.ok = true;
+    r.id = id;
+    r.message = i18n::tf("toast.exported", "已导出到 {0}", {full});
+    return r;
+}
+
+IoResult DataService::importContest(const std::string& path) {
+    IoResult r;
+    std::string full = resolveIoPath(path);
+    if (full.empty() || !std::filesystem::exists(full)) {
+        r.message = i18n::tf("io.file_missing", "文件不存在：{0}", {path});
+        return r;
+    }
+
+    WriteGuard guard(dir_);
+    if (!guard.ok()) {
+        r.message = i18n::ts("error.lock", "无法获取数据锁");
+        return r;
+    }
+
+    std::set<int> before;
+    {
+        contest::ContestStore store(dir_);
+        for (const auto& item : store.list()) before.insert(item.value("id", 0));
+    }
+    if (contest::cmdImportCdf(dir_, full) != 0) {
+        r.message = i18n::ts("io.import_failed", "导入失败（格式不支持或内容无效）");
+        return r;
+    }
+
+    int newId = -1;
+    {
+        contest::ContestStore store(dir_);
+        for (const auto& item : store.list()) {
+            int id = item.value("id", 0);
+            if (!before.count(id)) newId = id;
+        }
+    }
+    r.ok = true;
+    r.id = newId;
+    r.message = newId > 0
+                    ? i18n::tf("toast.contest_imported", "已导入比赛 #{0}",
+                               {std::to_string(newId)})
+                    : i18n::ts("toast.contest_imported_plain", "比赛已导入");
+    return r;
 }
 
 } // namespace gui

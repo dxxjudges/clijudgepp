@@ -23,6 +23,7 @@
 
 #include "data_service.h"
 #include "gui_config.h"
+#include "i18n.h"
 #include "icon_data.h"
 #include "markdown.h"
 #include "ui_app.h"
@@ -223,6 +224,35 @@ int runSelfTest(const std::string& dataDir) {
             printf("FAIL: deleteProblem did not take effect\n");
             ++failures;
         }
+
+        // 导入/导出（与 CLI 相同的题目 JSON/ZIP 与比赛 CDF）
+        int eid = t.createProblem("export roundtrip");
+        std::string zipPath = (tmp / "problem.zip").string();
+        auto er = t.exportProblem(eid, zipPath);
+        if (!er.ok) {
+            printf("FAIL: exportProblem: %s\n", er.message.c_str());
+            ++failures;
+        } else {
+            auto ir = t.importProblem(zipPath);
+            if (!ir.ok || ir.id <= 0) {
+                printf("FAIL: importProblem: %s\n", ir.message.c_str());
+                ++failures;
+            }
+        }
+
+        int cid = t.createContest("cdf roundtrip", "", "", {eid});
+        std::string cdfPath = (tmp / "contest.cdf.json").string();
+        auto ce = t.exportContest(cid, cdfPath);
+        if (!ce.ok) {
+            printf("FAIL: exportContest: %s\n", ce.message.c_str());
+            ++failures;
+        } else {
+            auto ci = t.importContest(cdfPath);
+            if (!ci.ok || ci.id <= 0) {
+                printf("FAIL: importContest: %s\n", ci.message.c_str());
+                ++failures;
+            }
+        }
     }
     fs::remove_all(tmp, ec);
 
@@ -235,6 +265,7 @@ void printUsage() {
            "Usage: %s [options]\n"
            "  --data-dir <path>  data directory (default: auto-detect, shares CLI data/)\n"
            "  --font <path>      TTF/TTC font file for CJK glyphs\n"
+           "  --lang <code>      display language (zh/en/<langs/*.cjl name>)\n"
            "  --selftest         run headless data/markdown checks and exit\n"
            "  --help             show this help\n",
            kAndroid ? "clijudgepp" : "clijudgepp");
@@ -247,6 +278,7 @@ int main(int argc, char* argv[]) {
 
     std::string argDataDir;
     std::string argFont;
+    std::string argLang;
     bool selftest = false;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -259,6 +291,8 @@ int main(int argc, char* argv[]) {
             argDataDir = argv[++i];
         } else if (a == "--font" && i + 1 < argc) {
             argFont = argv[++i];
+        } else if (a == "--lang" && i + 1 < argc) {
+            argLang = argv[++i];
         }
     }
 
@@ -287,6 +321,9 @@ int main(int argc, char* argv[]) {
         SDL_Quit();
         return rc;
     }
+
+    // 显示语言：命令行 > gui.json 的 lang > CLI config.json 的 current_lang > 中文
+    clijudge::gui::i18n::init(dataDir, configFilePath(), argLang.empty() ? cfg.lang : argLang);
 
     float scale = detectUiScale();
     SDL_WindowFlags flags = (SDL_WindowFlags)(SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);

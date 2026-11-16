@@ -64,6 +64,7 @@ Gradle 通过 `externalNativeBuild` 直接复用仓库根目录的 `CMakeLists.t
 clijudgepp [options]
   --data-dir <path>  共享数据目录（默认自动探测）
   --font <path>      指定中文字体（TTF/TTC，默认自动挑选系统中文字体）
+  --lang <code>      显示语言（zh / en / langs 下的语言包名）
   --selftest         无界面自检（数据读写 + Markdown 解析）
   --help             显示帮助
 ```
@@ -78,11 +79,13 @@ clijudgepp [options]
   "font_path": "",
   "window_width": 1280,
   "window_height": 800,
-  "maximized": false
+  "maximized": false,
+  "lang": ""
 }
 ```
 
 配置优先级：命令行参数 > `gui.json` > 自动探测。配置损坏时回退默认值，不影响启动。
+`lang` 为空时沿用 CLI `config.json` 的 `current_lang`，再回退到中文。
 
 ### 数据目录探测
 
@@ -102,8 +105,44 @@ clijudgepp [options]
 | 文章 | 列表、创建、查看、删除；Markdown 正文 |
 | 比赛 | 创建/删除；查看比赛题目；比赛内提交；排行榜 |
 | 提交记录 | 全局提交列表、单条详情（含子任务/测试点判定）、重判 |
+| 导入/导出 | 题目 CliJudge/NoldOJ JSON 或 zip（含 `testdata/`）、比赛 CDF；与 CLI 的 `problem export/import`、`contest export/import` 格式一致 |
+| 显示语言 | 内置中文/English、本地 `.cjl` 语言包、在线获取语言包（与 CLI 同一语言源） |
 
 评测结果状态与 clijudge 一致：`AC / WA / TLE / MLE / RE / CE / SE / SK / PE / OLE / PC / IV / ST / SR / IE`。
+
+### 显示语言（语言包）
+
+与 CLI 的 `displaylang` 使用**同一套语言包格式与存放位置**：`<dataDir>/langs/<code>.cjl`。
+侧栏底部的「显示语言」下拉框可切换内置中文/English、本地语言包，或从在线语言源
+下载新语言包；选择结果写入 `gui.json` 的 `lang`。
+
+在线语言包放在仓库的 **`langs` 分支**（根目录 `*.cjl`），不占用主分支、新增语言无需发版：
+
+- 列表：`https://api.github.com/repos/dxxjudges/clijudgepp/contents?ref=langs`
+- 下载：`https://raw.githubusercontent.com/dxxjudges/clijudgepp/langs/<code>.cjl`
+
+当前发布 `en.cjl`（English）与 `zh-CN.cjl`（简体中文）；新增语言只要往该分支提交
+`<code>.cjl` 即可在应用内的在线列表中出现。
+
+语言包结构（`strings.gui` 供 GUI 使用，其余节点留给 CLI）：
+
+```json
+{
+  "meta": { "name": "ja", "display": "日本語", "version": "1.0.0" },
+  "strings": {
+    "gui": {
+      "nav":       { "overview": "概要", "problems": "問題", "articles": "記事" },
+      "common":    { "save": "保存", "cancel": "キャンセル", "delete": "削除" },
+      "overview":  { "data_dir": "データディレクトリ" }
+    }
+  }
+}
+```
+
+- 键为点路径（`nav.overview`），嵌在 `strings.gui` 下。
+- 缺失的键按「语言包 → 内置英文 → 代码中的中文」回退，因此语言包可以只翻译一部分。
+- 完整键表见 [src/i18n_en.inc](src/i18n_en.inc)；新增文案时在调用处写成 `i18n::t("key", "中文")`。
+- 语言包文件名即语言代码，切换后立即生效，无需重启。
 
 ### Android 说明
 

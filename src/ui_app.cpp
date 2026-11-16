@@ -14,9 +14,11 @@
 
 #include "imgui.h"
 #include "json.hpp"
+#include "platform.h"
 #include "markdown.h"
 #include "data_service.h"
 #include "compare_modes.h"
+#include "i18n.h"
 
 namespace clijudge {
 namespace gui {
@@ -178,6 +180,23 @@ struct UiApp::Impl {
     std::string toast;
     double toastAt = 0.0;
 
+    // 显示语言 / 在线语言包
+    bool reqOnlineLangs = false;
+    enum class NetTask { None, Fetch, Download };
+    NetTask netTask = NetTask::None;
+    std::future<std::vector<std::string>> fetchFut;
+    std::future<bool> downloadFut;
+    std::string downloadCode;
+    std::vector<std::string> onlineLangs;
+    bool onlineFetched = false;
+
+    // 导入 / 导出（题目 JSON/ZIP、比赛 CDF，复用 CLI 的实现）
+    enum class IoKind { None, ProblemImport, ProblemExport, ContestImport, ContestExport };
+    IoKind ioKind = IoKind::None;
+    bool ioOpenRequested = false;
+    char ioPath[1024] = {0};
+    std::string ioError;
+
     Impl(AppOptions o) : opt(std::move(o)), svc(opt.dataDir) {
         S = opt.uiScale <= 0.0f ? 1.0f : opt.uiScale;
         theme.font = opt.font;
@@ -198,6 +217,57 @@ struct UiApp::Impl {
         dirtyTestCases = true;
         dirtyBoard = true;
         dirtyContestSubs = true;
+    }
+
+    // ── 显示语言 ────────────────────────────────────────
+    void startOnlineFetch() {
+        onlineFetched = false;
+        onlineLangs.clear();
+        netTask = NetTask::Fetch;
+        fetchFut = std::async(std::launch::async, [] { return i18n::fetchOnlineLanguages(); });
+    }
+
+    void switchLanguage(const std::string& code) {
+        if (!i18n::setLanguage(code)) return;
+        notify(i18n::tf("lang.switched", "已切换到 {0}", {i18n::currentDisplayName()}));
+    }
+
+    // 在线语言列表/下载结果轮询（不阻塞界面）
+    void updateNet() {
+        if (netTask == NetTask::Fetch && fetchFut.valid() &&
+            fetchFut.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+            onlineLangs = fetchFut.get();
+            onlineFetched = true;
+            netTask = NetTask::None;
+        } else if (netTask == NetTask::Download && downloadFut.valid() &&
+                   downloadFut.wait_for(std::chrono::milliseconds(0)) ==
+                       std::future_status::ready) {
+            bool ok = downloadFut.get();
+            std::string code = downloadCode;
+            netTask = NetTask::None;
+            if (ok && i18n::setLanguage(code)) {
+                notify(i18n::tf("lang.downloaded", "已下载并切换到 {0}",
+                                {i18n::currentDisplayName()}));
+            } else {
+                notify(i18n::tf("lang.download_failed", "下载失败：{0}", {code}));
+            }
+        }
+    }
+
+    void drawLanguageSelector(float width) {
+        ImGui::SetNextItemWidth(width);
+        std::string cur = i18n::currentDisplayName();
+        if (ImGui::BeginCombo("##lang", cur.c_str())) {
+            std::vector<i18n::LangInfo> list = i18n::languages();
+            std::string active = i18n::currentLanguage();
+            for (const auto& l : list) {
+                std::string label = l.display + "  (" + l.code + ")";
+                if (ImGui::Selectable(label.c_str(), l.code == active)) switchLanguage(l.code);
+            }
+            ImGui::Separator();
+            if (ImGui::Selectable(i18n::t("lang.online", "获取在线语言"))) reqOnlineLangs = true;
+            ImGui::EndCombo();
+        }
     }
 
     void reloadProblem() {
@@ -243,9 +313,9 @@ struct UiApp::Impl {
         task = Task::None;
         hasOutcome = outcome.ok;
         if (outcome.ok) {
-            notify("评测完成: " + outcome.status + "  " + std::to_string(outcome.score) + " 分");
+            notify(i18n::t("toast.judge_done", "评测完成: ") + outcome.status + "  " + std::to_string(outcome.score) + i18n::t("toast.score_suffix", " 分"));
         } else {
-            notify("评测失败: " + outcome.error);
+            notify(i18n::t("toast.judge_failed", "评测失败: ") + outcome.error);
         }
         dirtySubs = true;
         dirtyStats = true;
@@ -256,16 +326,16 @@ struct UiApp::Impl {
 
     void startSubmit(bool contest) {
         if (code.empty()) {
-            notify("源码为空");
+            notify(i18n::t("toast.source_empty", "源码为空"));
             return;
         }
         if (task != Task::None) {
-            notify("已有评测任务进行中");
+            notify(i18n::t("toast.judge_busy", "已有评测任务进行中"));
             return;
         }
         hasOutcome = false;
         if (langs.empty() || langIdx < 0 || langIdx >= (int)langs.size()) {
-            notify("没有可用的评测语言");
+            notify(i18n::t("toast.no_language", "没有可用的评测语言"));
             return;
         }
         std::string ext = langs[(size_t)langIdx].ext;
@@ -281,6 +351,93 @@ struct UiApp::Impl {
     }
 
     int curContestId() const { return selContest; }
+
+    // ── 导入 / 导出 ────────────────────────────────────
+    std::string defaultExportPath(const std::string& fileName) const {
+        return platform::pathJoin(platform::pathJoin(opt.dataDir, "exports"), fileName);
+    }
+
+    void openIo(IoKind kind, const std::string& path) {
+        ioKind = kind;
+        ioError.clear();
+        std::snprintf(ioPath, sizeof(ioPath), "%s", path.c_str());
+        ioOpenRequested = true;
+    }
+
+    void popupIo() {
+        if (ioOpenRequested) {
+            ImGui::OpenPopup("##io");
+            ioOpenRequested = false;
+        }
+        if (!ImGui::BeginPopupModal("##io", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+        const char* title = "";
+        const char* hint = "";
+        switch (ioKind) {
+            case IoKind::ProblemImport:
+                title = i18n::t("action.import_problem", "导入题目");
+                hint = i18n::t("io.problem_import_hint",
+                               "支持 CliJudge / NoldOJ JSON 与 zip（problem.json + testdata/）");
+                break;
+            case IoKind::ProblemExport:
+                title = i18n::t("action.export_problem", "导出题目");
+                hint = i18n::t("io.problem_export_hint",
+                               "扩展名为 .zip 时连同测试数据导出，其他扩展名导出 JSON");
+                break;
+            case IoKind::ContestImport:
+                title = i18n::t("action.import_contest", "导入比赛");
+                hint = i18n::t("io.contest_import_hint",
+                               "CDF 格式；同目录 data/ 下的 SPJ、交互器文件会一并导入");
+                break;
+            case IoKind::ContestExport:
+                title = i18n::t("action.export_contest", "导出比赛");
+                hint = i18n::t("io.contest_export_hint",
+                               "导出 CDF JSON，并在同目录 data/ 写入题目数据文件");
+                break;
+            case IoKind::None:
+                ImGui::EndPopup();
+                return;
+        }
+
+        ImGui::TextUnformatted(title);
+        ImGui::TextDisabled("%s", hint);
+        ImGui::Spacing();
+        ImGui::TextUnformatted(i18n::t("io.path", "路径"));
+        ImGui::SetNextItemWidth(560.0f * S);
+        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+        ImGui::InputText("##iopath", ioPath, sizeof(ioPath));
+        if (!ioError.empty()) {
+            ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 120, 120, 255));
+            ImGui::TextWrapped("%s", ioError.c_str());
+            ImGui::PopStyleColor();
+        }
+        ImGui::Spacing();
+
+        if (ImGui::Button(i18n::t("common.ok", "确定"), ImVec2(110.0f * S, 0))) {
+            IoResult r;
+            switch (ioKind) {
+                case IoKind::ProblemImport: r = svc.importProblem(ioPath); break;
+                case IoKind::ProblemExport: r = svc.exportProblem(curProblemId, ioPath); break;
+                case IoKind::ContestImport: r = svc.importContest(ioPath); break;
+                case IoKind::ContestExport: r = svc.exportContest(selContest, ioPath); break;
+                case IoKind::None: break;
+            }
+            if (r.ok) {
+                notify(r.message);
+                markAllDirty();
+                ioKind = IoKind::None;
+                ImGui::CloseCurrentPopup();
+            } else {
+                ioError = r.message;
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(i18n::t("common.cancel", "取消"), ImVec2(110.0f * S, 0))) {
+            ioKind = IoKind::None;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
 
     // ── 通用 UI 组件 ────────────────────────────────────
     void markdownView(const std::string& text) {
@@ -315,19 +472,19 @@ struct UiApp::Impl {
         try {
             d = json::parse(detailStr);
         } catch (...) {
-            ImGui::TextUnformatted("评测详情解析失败");
+            ImGui::TextUnformatted(i18n::t("judge.detail_parse_failed", "评测详情解析失败"));
             return;
         }
         std::string st = sval(d, "status_abbr");
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(statusColor(st)),
-                           "%s  %d / %d 分", st.c_str(), ival(d, "total_score"),
+                           i18n::t("judge.score_line", "%s  %d / %d 分"), st.c_str(), ival(d, "total_score"),
                            ival(d, "max_score"));
-        ImGui::Text("用时 %s    内存 %d KB", fmtMs(ival(d, "total_time_ms")).c_str(),
+        ImGui::Text(i18n::t("judge.time_memory", "用时 %s    内存 %d KB"), fmtMs(ival(d, "total_time_ms")).c_str(),
                     ival(d, "max_memory_kb"));
         std::string ce = sval(d, "compile_error");
         if (!ce.empty()) {
             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(248, 113, 113, 255));
-            ImGui::TextUnformatted("编译错误");
+            ImGui::TextUnformatted(i18n::t("judge.compile_error", "编译错误"));
             ImGui::PopStyleColor();
             ImGui::BeginChild("ce", ImVec2(0, 120.0f * S), true,
                               ImGuiWindowFlags_HorizontalScrollbar);
@@ -339,18 +496,18 @@ struct UiApp::Impl {
         for (const auto& stj : d["subtasks"]) {
             ++idx;
             char label[96];
-            std::snprintf(label, sizeof(label), "子任务 %d  (%d/%d)", ival(stj, "id", idx),
+            std::snprintf(label, sizeof(label), i18n::t("judge.subtask", "子任务 %d  (%d/%d)"), ival(stj, "id", idx),
                           ival(stj, "score"), ival(stj, "max_score"));
             if (!ImGui::CollapsingHeader(label)) continue;
             if (!stj.contains("test_cases") || !stj["test_cases"].is_array()) continue;
             if (ImGui::BeginTable("tc", 5,
                                   ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                                       ImGuiTableFlags_SizingFixedFit)) {
-                ImGui::TableSetupColumn("测试点");
-                ImGui::TableSetupColumn("状态");
-                ImGui::TableSetupColumn("用时");
-                ImGui::TableSetupColumn("内存");
-                ImGui::TableSetupColumn("得分");
+                ImGui::TableSetupColumn(i18n::t("problem.testcase", "测试点"));
+                ImGui::TableSetupColumn(i18n::t("common.status", "状态"));
+                ImGui::TableSetupColumn(i18n::t("common.time_used", "用时"));
+                ImGui::TableSetupColumn(i18n::t("common.memory", "内存"));
+                ImGui::TableSetupColumn(i18n::t("common.score", "得分"));
                 ImGui::TableHeadersRow();
                 for (const auto& tc : stj["test_cases"]) {
                     ImGui::TableNextRow();
@@ -418,37 +575,42 @@ struct UiApp::Impl {
         ImGui::TextUnformatted("CliJudge++");
         ImGui::SetWindowFontScale(1.0f);
         ImGui::PopStyleColor();
-        ImGui::TextDisabled("本地判题管理");
+        ImGui::TextDisabled(i18n::t("app.tagline", "本地判题管理"));
         ImGui::Separator();
-        navButton("概览", "overview");
-        navButton("题目", "problems");
-        navButton("文章", "articles");
-        navButton("比赛", "contests");
-        navButton("提交记录", "submissions");
+        navButton(i18n::t("nav.overview", "概览"), "overview");
+        navButton(i18n::t("nav.problems", "题目"), "problems");
+        navButton(i18n::t("nav.articles", "文章"), "articles");
+        navButton(i18n::t("nav.contests", "比赛"), "contests");
+        navButton(i18n::t("nav.submissions", "提交记录"), "submissions");
         ImGui::Separator();
-        ImGui::TextDisabled("数据目录");
+        ImGui::TextDisabled(i18n::t("overview.data_dir", "数据目录"));
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 170.0f * S);
         ImGui::TextUnformatted(opt.dataDir.c_str());
         ImGui::PopTextWrapPos();
         if (!opt.judgeAvailable) {
             ImGui::Separator();
             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(251, 191, 36, 255));
-            ImGui::TextWrapped("移动端仅支持管理与浏览，本地编译评测不可用。");
+            ImGui::TextWrapped(i18n::t("mobile.manage_only", "移动端仅支持管理与浏览，本地编译评测不可用。"));
             ImGui::PopStyleColor();
         }
+        ImGui::Separator();
+        ImGui::TextDisabled(i18n::t("lang.display", "显示语言"));
+        drawLanguageSelector(ImGui::GetContentRegionAvail().x);
         ImGui::EndChild();
     }
 
     void drawCompactNav() {
-        navButtonSmall("概览", "overview");
+        navButtonSmall(i18n::t("nav.overview", "概览"), "overview");
         ImGui::SameLine();
-        navButtonSmall("题目", "problems");
+        navButtonSmall(i18n::t("nav.problems", "题目"), "problems");
         ImGui::SameLine();
-        navButtonSmall("文章", "articles");
+        navButtonSmall(i18n::t("nav.articles", "文章"), "articles");
         ImGui::SameLine();
-        navButtonSmall("比赛", "contests");
+        navButtonSmall(i18n::t("nav.contests", "比赛"), "contests");
         ImGui::SameLine();
-        navButtonSmall("提交", "submissions");
+        navButtonSmall(i18n::t("nav.submissions_short", "提交"), "submissions");
+        ImGui::Separator();
+        drawLanguageSelector(170.0f * S);
         ImGui::Separator();
     }
 
@@ -477,31 +639,30 @@ struct UiApp::Impl {
 
         if (ImGui::BeginTable("stats", 4, ImGuiTableFlags_SizingStretchSame)) {
             ImGui::TableNextRow();
-            ImGui::TableNextColumn(); statCard("c1", "题目", countProblems);
-            ImGui::TableNextColumn(); statCard("c2", "文章", countArticles);
-            ImGui::TableNextColumn(); statCard("c3", "比赛", countContests);
-            ImGui::TableNextColumn(); statCard("c4", "提交", countSubmissions);
+            ImGui::TableNextColumn(); statCard("c1", i18n::t("nav.problems", "题目"), countProblems);
+            ImGui::TableNextColumn(); statCard("c2", i18n::t("nav.articles", "文章"), countArticles);
+            ImGui::TableNextColumn(); statCard("c3", i18n::t("nav.contests", "比赛"), countContests);
+            ImGui::TableNextColumn(); statCard("c4", i18n::t("nav.submissions_short", "提交"), countSubmissions);
             ImGui::EndTable();
         }
 
         ImGui::Spacing();
         if (ImGui::BeginChild("info", ImVec2(0, 0), true)) {
-            ImGui::TextUnformatted("数据目录");
+            ImGui::TextUnformatted(i18n::t("overview.data_dir", "数据目录"));
             ImGui::SameLine();
             ImGui::TextColored(ImVec4(0.58f, 0.77f, 0.99f, 1.0f), "%s", opt.dataDir.c_str());
             ImGui::TextWrapped(
-                "与 clijudge 命令行共享同一份数据：与 CLI 放在同一目录时自动使用其 data/ 目录，"
-                "修改类操作持有相同的跨进程数据锁。");
+                i18n::t("overview.shared_data", "与 clijudge 命令行共享同一份数据：与 CLI 放在同一目录时自动使用其 data/ 目录，修改类操作持有相同的跨进程数据锁。"));
             ImGui::Separator();
             if (opt.judgeAvailable) {
-                ImGui::TextColored(ImVec4(0.45f, 0.84f, 0.55f, 1.0f), "评测可用");
+                ImGui::TextColored(ImVec4(0.45f, 0.84f, 0.55f, 1.0f), i18n::t("overview.judge_available", "评测可用"));
             } else {
-                ImGui::TextColored(ImVec4(0.98f, 0.72f, 0.27f, 1.0f), "评测不可用（移动端）");
+                ImGui::TextColored(ImVec4(0.98f, 0.72f, 0.27f, 1.0f), i18n::t("overview.judge_unavailable", "评测不可用（移动端）"));
             }
-            ImGui::TextDisabled("按 F5 或点击下方按钮刷新数据");
-            if (ImGui::Button("刷新数据")) {
+            ImGui::TextDisabled(i18n::t("overview.refresh_hint", "按 F5 或点击下方按钮刷新数据"));
+            if (ImGui::Button(i18n::t("action.refresh_data", "刷新数据"))) {
                 markAllDirty();
-                notify("已刷新");
+                notify(i18n::t("toast.refreshed", "已刷新"));
             }
         }
         ImGui::EndChild();
@@ -519,12 +680,16 @@ struct UiApp::Impl {
         ImGui::SetNextItemWidth(220.0f * S);
         InputString("##search", search);
         ImGui::SameLine();
-        if (primaryButton("新建题目")) {
+        if (primaryButton(i18n::t("action.new_problem", "新建题目"))) {
             newProblemTitle.clear();
             reqCreateProblem = true;
         }
         ImGui::SameLine();
-        if (ImGui::Button("刷新")) dirtyProblems = true;
+        if (ImGui::Button(i18n::t("action.import_problem", "导入题目"))) {
+            openIo(IoKind::ProblemImport, "");
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(i18n::t("common.refresh", "刷新"))) dirtyProblems = true;
 
         ImGui::Spacing();
         if (ImGui::BeginTable("problems", 3,
@@ -532,8 +697,8 @@ struct UiApp::Impl {
                                   ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable,
                               ImVec2(0, ImGui::GetContentRegionAvail().y - 8))) {
             ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 60 * S);
-            ImGui::TableSetupColumn("标题", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("操作", ImGuiTableColumnFlags_WidthFixed, 80 * S);
+            ImGui::TableSetupColumn(i18n::t("common.title", "标题"), ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn(i18n::t("common.actions", "操作"), ImGuiTableColumnFlags_WidthFixed, 80 * S);
             ImGui::TableHeadersRow();
             for (const auto& p : problems) {
                 std::string title = sval(p, "title");
@@ -545,7 +710,7 @@ struct UiApp::Impl {
                 ImGui::TableNextColumn();
                 ImGui::TextUnformatted(title.c_str());
                 ImGui::TableNextColumn();
-                if (ImGui::SmallButton("打开")) openProblem(id);
+                if (ImGui::SmallButton(i18n::t("common.open", "打开"))) openProblem(id);
             }
             ImGui::EndTable();
         }
@@ -554,22 +719,22 @@ struct UiApp::Impl {
     std::string buildStatement() {
         if (!curProblem.is_object() || !curProblem.contains("problem")) return "";
         const json& p = curProblem["problem"];
-        std::string out = "# " + sval(p, "title", "未命名题目") + "\n\n";
+        std::string out = "# " + sval(p, "title", i18n::t("problem.untitled", "未命名题目")) + "\n\n";
         std::string desc = sval(p, "description");
         if (!desc.empty()) out += desc + "\n\n";
         std::string in = sval(p, "input_desc");
-        if (!in.empty()) out += "## 输入格式\n\n" + in + "\n\n";
+        if (!in.empty()) out += i18n::t("statement.input_format", "## 输入格式\n\n") + in + "\n\n";
         std::string od = sval(p, "output_desc");
-        if (!od.empty()) out += "## 输出格式\n\n" + od + "\n\n";
+        if (!od.empty()) out += i18n::t("statement.output_format", "## 输出格式\n\n") + od + "\n\n";
         std::string si = sval(p, "sample_input");
-        if (!si.empty()) out += "## 样例输入\n\n```\n" + si + "\n```\n\n";
+        if (!si.empty()) out += i18n::t("statement.sample_input", "## 样例输入\n\n```\n") + si + "\n```\n\n";
         std::string so = sval(p, "sample_output");
-        if (!so.empty()) out += "## 样例输出\n\n```\n" + so + "\n```\n\n";
+        if (!so.empty()) out += i18n::t("statement.sample_output", "## 样例输出\n\n```\n") + so + "\n```\n\n";
         std::string hint = sval(p, "hint");
-        if (!hint.empty()) out += "## 提示\n\n" + hint + "\n\n";
+        if (!hint.empty()) out += i18n::t("statement.hint", "## 提示\n\n") + hint + "\n\n";
         out += "---\n\n";
-        out += "限制: " + std::to_string(ival(p, "time_limit", 1000)) + " ms / " +
-               std::to_string(ival(p, "memory_limit", 256)) + " MB  ·  比较模式: " +
+        out += i18n::t("statement.limits", "限制: ") + std::to_string(ival(p, "time_limit", 1000)) + " ms / " +
+               std::to_string(ival(p, "memory_limit", 256)) + i18n::t("statement.compare_mode_suffix", " MB  ·  比较模式: ") +
                sval(p, "compare_mode", "text_strict");
         return out;
     }
@@ -577,47 +742,52 @@ struct UiApp::Impl {
     void pageProblemDetail() {
         if (curProblemId != selProblem || dirtyTestCases) reloadProblem();
         if (!curProblem.is_object()) {
-            ImGui::TextUnformatted("题目数据加载失败");
-            if (ImGui::Button("返回")) selProblem = -1;
+            ImGui::TextUnformatted(i18n::t("error.problem_load", "题目数据加载失败"));
+            if (ImGui::Button(i18n::t("common.back", "返回"))) selProblem = -1;
             return;
         }
 
-        if (ImGui::Button("< 返回")) { selProblem = -1; return; }
+        if (ImGui::Button(i18n::t("common.back_arrow", "< 返回"))) { selProblem = -1; return; }
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(0.58f, 0.77f, 0.99f, 1.0f), "#%d  %s", curProblemId,
                            sval(curProblem["problem"], "title").c_str());
         ImGui::SameLine();
-        if (ImGui::Button("编辑")) {
+        if (ImGui::Button(i18n::t("common.edit", "编辑"))) {
             fillEditBuffers();
             editingProblem = true;
             problemTab = 0;
         }
         ImGui::SameLine();
-        if (ImGui::Button("删除")) {
+        if (ImGui::Button(i18n::t("common.delete", "删除"))) {
             confirmKind = 1;
             confirmId = curProblemId;
             confirmOpenRequested = true;
         }
+        ImGui::SameLine();
+        if (ImGui::Button(i18n::t("action.export_problem", "导出题目"))) {
+            openIo(IoKind::ProblemExport,
+                   defaultExportPath("problem_" + std::to_string(curProblemId) + ".zip"));
+        }
 
         ImGui::Separator();
         if (ImGui::BeginTabBar("ptabs")) {
-            if (ImGui::BeginTabItem("题面")) {
+            if (ImGui::BeginTabItem(i18n::t("problem.statement", "题面"))) {
                 problemTab = 0;
                 if (editingProblem) drawProblemEditor();
                 else markdownView(buildStatement());
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("测试数据")) {
+            if (ImGui::BeginTabItem(i18n::t("problem.testdata", "测试数据"))) {
                 problemTab = 1;
                 drawTestCasesTab();
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("提交评测")) {
+            if (ImGui::BeginTabItem(i18n::t("action.submit", "提交评测"))) {
                 problemTab = 2;
                 drawSubmitTab();
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("提交记录")) {
+            if (ImGui::BeginTabItem(i18n::t("nav.submissions", "提交记录"))) {
                 problemTab = 3;
                 drawProblemSubmissions();
                 ImGui::EndTabItem();
@@ -627,22 +797,22 @@ struct UiApp::Impl {
     }
 
     void drawProblemEditor() {
-        if (InputString("标题", pe.title)) {}
+        if (InputString(i18n::t("common.title", "标题"), pe.title)) {}
         if (ImGui::BeginTable("meta", 3, ImGuiTableFlags_SizingStretchProp)) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             ImGui::SetNextItemWidth(-FLT_MIN);
-            ImGui::InputInt("时间限制 (ms)", &pe.timeLimit);
+            ImGui::InputInt(i18n::t("problem.time_limit", "时间限制 (ms)"), &pe.timeLimit);
             ImGui::TableNextColumn();
             ImGui::SetNextItemWidth(-FLT_MIN);
-            ImGui::InputInt("内存限制 (MB)", &pe.memoryLimit);
+            ImGui::InputInt(i18n::t("problem.memory_limit", "内存限制 (MB)"), &pe.memoryLimit);
             ImGui::TableNextColumn();
             int cmIdx = compareModeIndex(pe.compareMode);
             std::string cmPreview = cmIdx >= 0
                                         ? std::string(kCompareModes[cmIdx])
-                                        : pe.compareMode + "（未识别，保留原值）";
+                                        : pe.compareMode + i18n::t("problem.compare_unknown", "（未识别，保留原值）");
             ImGui::SetNextItemWidth(-FLT_MIN);
-            if (ImGui::BeginCombo("比较模式", cmPreview.c_str())) {
+            if (ImGui::BeginCombo(i18n::t("problem.compare_mode", "比较模式"), cmPreview.c_str())) {
                 for (int i = 0; i < kCompareModeCount; ++i) {
                     if (ImGui::Selectable(kCompareModes[i], cmIdx == i)) pe.compareMode = kCompareModes[i];
                 }
@@ -650,21 +820,21 @@ struct UiApp::Impl {
             }
             ImGui::EndTable();
         }
-        ImGui::TextUnformatted("题面 (Markdown)");
+        ImGui::TextUnformatted(i18n::t("problem.statement_md", "题面 (Markdown)"));
         InputMultiline("##desc", pe.desc, ImVec2(-FLT_MIN, 220.0f * S));
-        ImGui::TextUnformatted("输入格式");
+        ImGui::TextUnformatted(i18n::t("problem.input_format", "输入格式"));
         InputMultiline("##in", pe.inputDesc, ImVec2(-FLT_MIN, 60.0f * S));
-        ImGui::TextUnformatted("输出格式");
+        ImGui::TextUnformatted(i18n::t("problem.output_format", "输出格式"));
         InputMultiline("##out", pe.outputDesc, ImVec2(-FLT_MIN, 60.0f * S));
-        ImGui::TextUnformatted("样例输入");
+        ImGui::TextUnformatted(i18n::t("problem.sample_input", "样例输入"));
         InputMultiline("##si", pe.sampleIn, ImVec2(-FLT_MIN, 80.0f * S));
-        ImGui::TextUnformatted("样例输出");
+        ImGui::TextUnformatted(i18n::t("problem.sample_output", "样例输出"));
         InputMultiline("##so", pe.sampleOut, ImVec2(-FLT_MIN, 80.0f * S));
-        ImGui::TextUnformatted("提示");
+        ImGui::TextUnformatted(i18n::t("problem.hint", "提示"));
         InputMultiline("##hint", pe.hint, ImVec2(-FLT_MIN, 80.0f * S));
 
         ImGui::Spacing();
-        if (primaryButton("保存")) {
+        if (primaryButton(i18n::t("common.save", "保存"))) {
             json fields = {
                 {"title", pe.title},
                 {"description", pe.desc},
@@ -678,22 +848,22 @@ struct UiApp::Impl {
                 {"compare_mode", pe.compareMode}
             };
             if (svc.saveProblem(curProblemId, fields)) {
-                notify("已保存");
+                notify(i18n::t("toast.saved", "已保存"));
                 editingProblem = false;
                 dirtyProblems = true;
                 dirtyStats = true;
                 reloadProblem();
             } else {
-                notify("保存失败");
+                notify(i18n::t("toast.save_failed", "保存失败"));
             }
         }
         ImGui::SameLine();
-        if (ImGui::Button("取消")) editingProblem = false;
+        if (ImGui::Button(i18n::t("common.cancel", "取消"))) editingProblem = false;
     }
 
     void drawTestCasesTab() {
         if (dirtyTestCases) reloadProblem();
-        if (primaryButton("新增测试点")) {
+        if (primaryButton(i18n::t("action.add_testcase", "新增测试点"))) {
             tcIn.clear();
             tcOut.clear();
             tcScore = 10;
@@ -702,7 +872,7 @@ struct UiApp::Impl {
             reqAddTc = true;
         }
         ImGui::SameLine();
-        if (ImGui::Button("刷新")) dirtyTestCases = true;
+        if (ImGui::Button(i18n::t("common.refresh", "刷新"))) dirtyTestCases = true;
 
         ImGui::Spacing();
         if (ImGui::BeginTable("tcs", 7,
@@ -710,12 +880,12 @@ struct UiApp::Impl {
                                   ImGuiTableFlags_ScrollY,
                               ImVec2(0, ImGui::GetContentRegionAvail().y - 8))) {
             ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 50 * S);
-            ImGui::TableSetupColumn("分值", ImGuiTableColumnFlags_WidthFixed, 60 * S);
-            ImGui::TableSetupColumn("时间", ImGuiTableColumnFlags_WidthFixed, 80 * S);
-            ImGui::TableSetupColumn("内存", ImGuiTableColumnFlags_WidthFixed, 80 * S);
-            ImGui::TableSetupColumn("输入", ImGuiTableColumnFlags_WidthFixed, 80 * S);
-            ImGui::TableSetupColumn("输出", ImGuiTableColumnFlags_WidthFixed, 80 * S);
-            ImGui::TableSetupColumn("操作", ImGuiTableColumnFlags_WidthFixed, 70 * S);
+            ImGui::TableSetupColumn(i18n::t("common.points", "分值"), ImGuiTableColumnFlags_WidthFixed, 60 * S);
+            ImGui::TableSetupColumn(i18n::t("common.time", "时间"), ImGuiTableColumnFlags_WidthFixed, 80 * S);
+            ImGui::TableSetupColumn(i18n::t("common.memory", "内存"), ImGuiTableColumnFlags_WidthFixed, 80 * S);
+            ImGui::TableSetupColumn(i18n::t("common.input", "输入"), ImGuiTableColumnFlags_WidthFixed, 80 * S);
+            ImGui::TableSetupColumn(i18n::t("common.output", "输出"), ImGuiTableColumnFlags_WidthFixed, 80 * S);
+            ImGui::TableSetupColumn(i18n::t("common.actions", "操作"), ImGuiTableColumnFlags_WidthFixed, 70 * S);
             ImGui::TableHeadersRow();
             for (const auto& tc : testCases) {
                 int id = ival(tc, "id");
@@ -729,12 +899,12 @@ struct UiApp::Impl {
                 ImGui::TableNextColumn();
                 ImGui::Text("%d MB", ival(tc, "memory_limit"));
                 ImGui::TableNextColumn();
-                ImGui::Text("%d 字节", (int)sval(tc, "input_data").size());
+                ImGui::Text(i18n::t("problem.bytes", "%d 字节"), (int)sval(tc, "input_data").size());
                 ImGui::TableNextColumn();
-                ImGui::Text("%d 字节", (int)sval(tc, "output_data").size());
+                ImGui::Text(i18n::t("problem.bytes", "%d 字节"), (int)sval(tc, "output_data").size());
                 ImGui::TableNextColumn();
                 ImGui::PushID(id);
-                if (ImGui::SmallButton("删除")) {
+                if (ImGui::SmallButton(i18n::t("common.delete", "删除"))) {
                     confirmKind = 4;
                     confirmId = curProblemId;
                     confirmExtra = id;
@@ -749,13 +919,12 @@ struct UiApp::Impl {
     void drawSubmitTab() {
         if (!opt.judgeAvailable) {
             ImGui::TextColored(ImVec4(0.98f, 0.72f, 0.27f, 1.0f),
-                               "Android 端不支持本地编译评测。");
-            ImGui::TextWrapped("判题需要调用外部编译器（g++ 等）并运行可执行文件，移动端无法完成。"
-                               "请使用桌面版 clijudgepp 或 clijudge 命令行进行评测。");
+                               i18n::t("mobile.no_judge", "Android 端不支持本地编译评测。"));
+            ImGui::TextWrapped(i18n::t("mobile.judge_requires_toolchain", "判题需要调用外部编译器（g++ 等）并运行可执行文件，移动端无法完成。请使用桌面版 clijudgepp 或 clijudge 命令行进行评测。"));
             return;
         }
         ImGui::SetNextItemWidth(160.0f * S);
-        if (ImGui::Combo("语言", &langIdx, [](void* data, int i, const char** out) {
+        if (ImGui::Combo(i18n::t("common.language", "语言"), &langIdx, [](void* data, int i, const char** out) {
             const auto& list = *(const std::vector<LangOption>*)data;
             *out = list[(size_t)i].name.c_str();
             return true;
@@ -764,23 +933,23 @@ struct UiApp::Impl {
         ImGui::SameLine();
         bool hasTmpl = langIdx >= 0 && langIdx < (int)langs.size() && !langs[(size_t)langIdx].tmpl.empty();
         ImGui::BeginDisabled(!hasTmpl);
-        if (ImGui::Button("插入模板") && hasTmpl) code = langs[(size_t)langIdx].tmpl;
+        if (ImGui::Button(i18n::t("action.insert_template", "插入模板")) && hasTmpl) code = langs[(size_t)langIdx].tmpl;
         ImGui::EndDisabled();
         ImGui::SameLine();
-        if (ImGui::Button("清空")) code.clear();
+        if (ImGui::Button(i18n::t("common.clear", "清空"))) code.clear();
 
         InputMultiline("##code", code, ImVec2(-FLT_MIN, 260.0f * S),
                        ImGuiInputTextFlags_AllowTabInput);
 
         if (task == Task::Submit) {
-            ImGui::TextColored(ImVec4(0.58f, 0.77f, 0.99f, 1.0f), "评测中，请稍候...");
-        } else if (primaryButton("提交评测", ImVec2(140.0f * S, 34.0f * S))) {
+            ImGui::TextColored(ImVec4(0.58f, 0.77f, 0.99f, 1.0f), i18n::t("judge.running", "评测中，请稍候..."));
+        } else if (primaryButton(i18n::t("action.submit", "提交评测"), ImVec2(140.0f * S, 34.0f * S))) {
             startSubmit(false);
         }
 
         if (hasOutcome && !outcome.detailJson.empty()) {
             ImGui::Separator();
-            ImGui::TextUnformatted("评测结果");
+            ImGui::TextUnformatted(i18n::t("judge.result", "评测结果"));
             drawJudgeDetail(outcome.detailJson);
         } else if (!hasOutcome && !outcome.error.empty()) {
             ImGui::Separator();
@@ -793,18 +962,18 @@ struct UiApp::Impl {
             submissions = svc.submissionList(1000);
             dirtySubs = false;
         }
-        if (ImGui::Button("刷新")) dirtySubs = true;
+        if (ImGui::Button(i18n::t("common.refresh", "刷新"))) dirtySubs = true;
         ImGui::Spacing();
         if (ImGui::BeginTable("psubs", 6,
                               ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                                   ImGuiTableFlags_ScrollY,
                               ImVec2(0, ImGui::GetContentRegionAvail().y - 8))) {
             ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 55 * S);
-            ImGui::TableSetupColumn("状态", ImGuiTableColumnFlags_WidthFixed, 60 * S);
-            ImGui::TableSetupColumn("分数", ImGuiTableColumnFlags_WidthFixed, 60 * S);
-            ImGui::TableSetupColumn("用时", ImGuiTableColumnFlags_WidthFixed, 80 * S);
-            ImGui::TableSetupColumn("内存", ImGuiTableColumnFlags_WidthFixed, 90 * S);
-            ImGui::TableSetupColumn("时间", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn(i18n::t("common.status", "状态"), ImGuiTableColumnFlags_WidthFixed, 60 * S);
+            ImGui::TableSetupColumn(i18n::t("common.score_short", "分数"), ImGuiTableColumnFlags_WidthFixed, 60 * S);
+            ImGui::TableSetupColumn(i18n::t("common.time_used", "用时"), ImGuiTableColumnFlags_WidthFixed, 80 * S);
+            ImGui::TableSetupColumn(i18n::t("common.memory", "内存"), ImGuiTableColumnFlags_WidthFixed, 90 * S);
+            ImGui::TableSetupColumn(i18n::t("common.time", "时间"), ImGuiTableColumnFlags_WidthStretch);
             ImGui::TableHeadersRow();
             bool any = false;
             for (const auto& sub : submissions) {
@@ -815,7 +984,7 @@ struct UiApp::Impl {
             if (!any) {
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                ImGui::TextDisabled("暂无提交");
+                ImGui::TextDisabled(i18n::t("submissions.empty", "暂无提交"));
             }
             ImGui::EndTable();
         }
@@ -849,12 +1018,12 @@ struct UiApp::Impl {
     void pageArticles() {
         if (selArticle >= 0) {
             if (!curArticle.is_object()) curArticle = svc.articleView(selArticle);
-            if (ImGui::Button("< 返回")) { selArticle = -1; return; }
+            if (ImGui::Button(i18n::t("common.back_arrow", "< 返回"))) { selArticle = -1; return; }
             ImGui::SameLine();
             ImGui::TextColored(ImVec4(0.58f, 0.77f, 0.99f, 1.0f), "%s",
                                sval(curArticle, "title").c_str());
             ImGui::SameLine();
-            if (ImGui::Button("删除")) {
+            if (ImGui::Button(i18n::t("common.delete", "删除"))) {
                 confirmKind = 2;
                 confirmId = selArticle;
                 confirmOpenRequested = true;
@@ -870,21 +1039,21 @@ struct UiApp::Impl {
             articles = svc.articleList();
             dirtyArticles = false;
         }
-        if (primaryButton("新建文章")) {
+        if (primaryButton(i18n::t("action.new_article", "新建文章"))) {
             artTitle.clear();
             artContent.clear();
             reqCreateArticle = true;
         }
         ImGui::SameLine();
-        if (ImGui::Button("刷新")) dirtyArticles = true;
+        if (ImGui::Button(i18n::t("common.refresh", "刷新"))) dirtyArticles = true;
         ImGui::Spacing();
         if (ImGui::BeginTable("articles", 3,
                               ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                                   ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable,
                               ImVec2(0, ImGui::GetContentRegionAvail().y - 8))) {
             ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 60 * S);
-            ImGui::TableSetupColumn("标题", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("操作", ImGuiTableColumnFlags_WidthFixed, 80 * S);
+            ImGui::TableSetupColumn(i18n::t("common.title", "标题"), ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn(i18n::t("common.actions", "操作"), ImGuiTableColumnFlags_WidthFixed, 80 * S);
             ImGui::TableHeadersRow();
             for (const auto& a : articles) {
                 int id = ival(a, "id");
@@ -894,7 +1063,7 @@ struct UiApp::Impl {
                 ImGui::TableNextColumn();
                 ImGui::TextUnformatted(sval(a, "title").c_str());
                 ImGui::TableNextColumn();
-                if (ImGui::SmallButton("阅读")) {
+                if (ImGui::SmallButton(i18n::t("common.read", "阅读"))) {
                     selArticle = id;
                     curArticle = svc.articleView(id);
                 }
@@ -911,7 +1080,7 @@ struct UiApp::Impl {
             contests = svc.contestList();
             dirtyContests = false;
         }
-        if (primaryButton("新建比赛")) {
+        if (primaryButton(i18n::t("action.new_contest", "新建比赛"))) {
             cTitle.clear();
             cStart.clear();
             cEnd.clear();
@@ -919,8 +1088,12 @@ struct UiApp::Impl {
             reqCreateContest = true;
         }
         ImGui::SameLine();
-        if (ImGui::Button("刷新")) dirtyContests = true;
-        ImGui::TextDisabled("开始/结束时间格式: YYYY-MM-DD HH:MM:SS（留空表示不限时）");
+        if (ImGui::Button(i18n::t("action.import_contest", "导入比赛"))) {
+            openIo(IoKind::ContestImport, "");
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(i18n::t("common.refresh", "刷新"))) dirtyContests = true;
+        ImGui::TextDisabled(i18n::t("contest.time_hint", "开始/结束时间格式: YYYY-MM-DD HH:MM:SS（留空表示不限时）"));
 
         ImGui::Spacing();
         if (ImGui::BeginTable("contests", 5,
@@ -928,10 +1101,10 @@ struct UiApp::Impl {
                                   ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable,
                               ImVec2(0, ImGui::GetContentRegionAvail().y - 8))) {
             ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 55 * S);
-            ImGui::TableSetupColumn("标题", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("开始", ImGuiTableColumnFlags_WidthFixed, 150 * S);
-            ImGui::TableSetupColumn("结束", ImGuiTableColumnFlags_WidthFixed, 150 * S);
-            ImGui::TableSetupColumn("操作", ImGuiTableColumnFlags_WidthFixed, 80 * S);
+            ImGui::TableSetupColumn(i18n::t("common.title", "标题"), ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn(i18n::t("common.start", "开始"), ImGuiTableColumnFlags_WidthFixed, 150 * S);
+            ImGui::TableSetupColumn(i18n::t("common.end", "结束"), ImGuiTableColumnFlags_WidthFixed, 150 * S);
+            ImGui::TableSetupColumn(i18n::t("common.actions", "操作"), ImGuiTableColumnFlags_WidthFixed, 80 * S);
             ImGui::TableHeadersRow();
             for (const auto& ct : contests) {
                 int id = ival(ct, "id");
@@ -945,7 +1118,7 @@ struct UiApp::Impl {
                 ImGui::TableNextColumn();
                 ImGui::TextUnformatted(sval(ct, "end_time").c_str());
                 ImGui::TableNextColumn();
-                if (ImGui::SmallButton("打开")) {
+                if (ImGui::SmallButton(i18n::t("common.open", "打开"))) {
                     selContest = id;
                     curContest = svc.contestView(id);
                     contestTab = 0;
@@ -959,34 +1132,39 @@ struct UiApp::Impl {
     void pageContestDetail() {
         if (!curContest.is_object()) curContest = svc.contestView(selContest);
         if (!curContest.is_object()) {
-            ImGui::TextUnformatted("比赛数据加载失败");
-            if (ImGui::Button("返回")) selContest = -1;
+            ImGui::TextUnformatted(i18n::t("error.contest_load", "比赛数据加载失败"));
+            if (ImGui::Button(i18n::t("common.back", "返回"))) selContest = -1;
             return;
         }
-        if (ImGui::Button("< 返回")) { selContest = -1; return; }
+        if (ImGui::Button(i18n::t("common.back_arrow", "< 返回"))) { selContest = -1; return; }
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(0.58f, 0.77f, 0.99f, 1.0f), "#%d  %s", selContest,
                            sval(curContest, "title").c_str());
         ImGui::SameLine();
-        if (ImGui::Button("删除")) {
+        if (ImGui::Button(i18n::t("common.delete", "删除"))) {
             confirmKind = 3;
             confirmId = selContest;
             confirmOpenRequested = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(i18n::t("action.export_contest", "导出比赛"))) {
+            openIo(IoKind::ContestExport,
+                   defaultExportPath("contest_" + std::to_string(selContest) + ".cdf.json"));
         }
         ImGui::TextDisabled("%s  ~  %s", sval(curContest, "start_time").c_str(),
                             sval(curContest, "end_time").c_str());
         ImGui::Separator();
 
         if (ImGui::BeginTabBar("ctabs")) {
-            if (ImGui::BeginTabItem("概览")) {
+            if (ImGui::BeginTabItem(i18n::t("nav.overview", "概览"))) {
                 contestTab = 0;
                 json ids = curContest.contains("problem_ids") ? curContest["problem_ids"]
                                                               : json::array();
-                ImGui::Text("题目数量: %d", (int)ids.size());
+                ImGui::Text(i18n::t("contest.problem_count", "题目数量: %d"), (int)ids.size());
                 if (ImGui::BeginTable("cprobs", 2,
                                       ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
-                    ImGui::TableSetupColumn("序号", ImGuiTableColumnFlags_WidthFixed, 60 * S);
-                    ImGui::TableSetupColumn("题目", ImGuiTableColumnFlags_WidthStretch);
+                    ImGui::TableSetupColumn(i18n::t("common.index", "序号"), ImGuiTableColumnFlags_WidthFixed, 60 * S);
+                    ImGui::TableSetupColumn(i18n::t("nav.problems", "题目"), ImGuiTableColumnFlags_WidthStretch);
                     ImGui::TableHeadersRow();
                     for (size_t ci = 0; ci < ids.size(); ++ci) {
                         int pid = ids[ci].is_number_integer() ? ids[ci].get<int>() : -1;
@@ -997,16 +1175,16 @@ struct UiApp::Impl {
                         ImGui::TableNextColumn();
                         std::string t = pv.is_object() && pv.contains("problem")
                                             ? sval(pv["problem"], "title")
-                                            : "（题目不存在）";
+                                            : i18n::t("problem.missing", "（题目不存在）");
                         ImGui::TextUnformatted(t.c_str());
                     }
                     ImGui::EndTable();
                 }
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("排行榜")) {
+            if (ImGui::BeginTabItem(i18n::t("contest.leaderboard", "排行榜"))) {
                 contestTab = 1;
-                if (ImGui::Button("刷新排行榜")) dirtyBoard = true;
+                if (ImGui::Button(i18n::t("action.refresh_board", "刷新排行榜"))) dirtyBoard = true;
                 if (dirtyBoard) {
                     board = svc.contestLeaderboard(selContest);
                     dirtyBoard = false;
@@ -1015,10 +1193,10 @@ struct UiApp::Impl {
                 if (ImGui::BeginTable("board", 4,
                                       ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                                           ImGuiTableFlags_ScrollY)) {
-                    ImGui::TableSetupColumn("排名", ImGuiTableColumnFlags_WidthFixed, 60 * S);
-                    ImGui::TableSetupColumn("选手", ImGuiTableColumnFlags_WidthStretch);
-                    ImGui::TableSetupColumn("总分", ImGuiTableColumnFlags_WidthFixed, 70 * S);
-                    ImGui::TableSetupColumn("通过/提交", ImGuiTableColumnFlags_WidthFixed, 90 * S);
+                    ImGui::TableSetupColumn(i18n::t("contest.rank", "排名"), ImGuiTableColumnFlags_WidthFixed, 60 * S);
+                    ImGui::TableSetupColumn(i18n::t("contest.user", "选手"), ImGuiTableColumnFlags_WidthStretch);
+                    ImGui::TableSetupColumn(i18n::t("contest.total_score", "总分"), ImGuiTableColumnFlags_WidthFixed, 70 * S);
+                    ImGui::TableSetupColumn(i18n::t("contest.ac_total", "通过/提交"), ImGuiTableColumnFlags_WidthFixed, 90 * S);
                     ImGui::TableHeadersRow();
                     int rank = 0;
                     if (board.is_array()) {
@@ -1039,7 +1217,7 @@ struct UiApp::Impl {
                 }
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("题目")) {
+            if (ImGui::BeginTabItem(i18n::t("nav.problems", "题目"))) {
                 contestTab = 2;
                 drawContestProblemTab();
                 ImGui::EndTabItem();
@@ -1052,7 +1230,7 @@ struct UiApp::Impl {
         json ids = curContest.contains("problem_ids") ? curContest["problem_ids"]
                                                       : json::array();
         if (ids.empty()) {
-            ImGui::TextDisabled("比赛没有题目");
+            ImGui::TextDisabled(i18n::t("contest.no_problems", "比赛没有题目"));
             return;
         }
         if (contestProblemIdx < 1) contestProblemIdx = 1;
@@ -1063,16 +1241,16 @@ struct UiApp::Impl {
                       ? ids[contestProblemIdx - 1].get<int>() : -1;
         json pv = svc.problemView(pid);
         std::string ptitle = pv.is_object() && pv.contains("problem")
-                                 ? sval(pv["problem"], "title") : "（题目不存在）";
+                                 ? sval(pv["problem"], "title") : i18n::t("problem.missing", "（题目不存在）");
         std::snprintf(preview, sizeof(preview), "%d. %s", contestProblemIdx, ptitle.c_str());
 
         ImGui::SetNextItemWidth(300.0f * S);
-        if (ImGui::BeginCombo("题目", preview)) {
+        if (ImGui::BeginCombo(i18n::t("nav.problems", "题目"), preview)) {
             for (size_t ci = 0; ci < ids.size(); ++ci) {
                 int id = ids[ci].is_number_integer() ? ids[ci].get<int>() : -1;
                 json t = svc.problemView(id);
                 std::string title = t.is_object() && t.contains("problem")
-                                        ? sval(t["problem"], "title") : "（题目不存在）";
+                                        ? sval(t["problem"], "title") : i18n::t("problem.missing", "（题目不存在）");
                 char label[128];
                 std::snprintf(label, sizeof(label), "%d. %s", (int)ci + 1, title.c_str());
                 if (ImGui::Selectable(label, contestProblemIdx == (int)ci + 1)) {
@@ -1089,8 +1267,8 @@ struct UiApp::Impl {
         std::string statement = "# " + ptitle + "\n\n" + sval(p, "description");
         std::string si = sval(p, "sample_input");
         std::string so = sval(p, "sample_output");
-        if (!si.empty()) statement += "\n\n## 样例输入\n\n```\n" + si + "\n```";
-        if (!so.empty()) statement += "\n\n## 样例输出\n\n```\n" + so + "\n```";
+        if (!si.empty()) statement += i18n::t("statement.sample_input_inline", "\n\n## 样例输入\n\n```\n") + si + "\n```";
+        if (!so.empty()) statement += i18n::t("statement.sample_output_inline", "\n\n## 样例输出\n\n```\n") + so + "\n```";
         markdownView(statement);
 
         ImGui::Separator();
@@ -1098,15 +1276,15 @@ struct UiApp::Impl {
             contestProblemSubs = svc.contestProblemSubmissions(selContest, contestProblemIdx);
             dirtyContestSubs = false;
         }
-        ImGui::TextUnformatted("该题提交");
+        ImGui::TextUnformatted(i18n::t("contest.problem_submissions", "该题提交"));
         if (ImGui::BeginTable("csub", 5,
                               ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg,
                               ImVec2(0, 130.0f * S))) {
-            ImGui::TableSetupColumn("提交者", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("结果", ImGuiTableColumnFlags_WidthFixed, 70 * S);
-            ImGui::TableSetupColumn("分数", ImGuiTableColumnFlags_WidthFixed, 60 * S);
-            ImGui::TableSetupColumn("用时", ImGuiTableColumnFlags_WidthFixed, 80 * S);
-            ImGui::TableSetupColumn("时间", ImGuiTableColumnFlags_WidthFixed, 150 * S);
+            ImGui::TableSetupColumn(i18n::t("submission.submitter", "提交者"), ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn(i18n::t("submission.result", "结果"), ImGuiTableColumnFlags_WidthFixed, 70 * S);
+            ImGui::TableSetupColumn(i18n::t("common.score_short", "分数"), ImGuiTableColumnFlags_WidthFixed, 60 * S);
+            ImGui::TableSetupColumn(i18n::t("common.time_used", "用时"), ImGuiTableColumnFlags_WidthFixed, 80 * S);
+            ImGui::TableSetupColumn(i18n::t("common.time", "时间"), ImGuiTableColumnFlags_WidthFixed, 150 * S);
             ImGui::TableHeadersRow();
             if (contestProblemSubs.is_array()) {
                 for (const auto& sub : contestProblemSubs) {
@@ -1130,7 +1308,7 @@ struct UiApp::Impl {
 
         if (!opt.judgeAvailable) {
             ImGui::TextColored(ImVec4(0.98f, 0.72f, 0.27f, 1.0f),
-                               "移动端不支持比赛本地评测。");
+                               i18n::t("mobile.contest_judge", "移动端不支持比赛本地评测。"));
             return;
         }
         ImGui::Spacing();
@@ -1138,7 +1316,7 @@ struct UiApp::Impl {
         const char* curLangName = (langIdx >= 0 && langIdx < (int)langs.size())
                                       ? langs[(size_t)langIdx].name.c_str()
                                       : "";
-        if (ImGui::BeginCombo("语言", curLangName)) {
+        if (ImGui::BeginCombo(i18n::t("common.language", "语言"), curLangName)) {
             for (int li = 0; li < (int)langs.size(); ++li) {
                 if (ImGui::Selectable(langs[(size_t)li].name.c_str(), langIdx == li)) {
                     langIdx = li;
@@ -1150,8 +1328,8 @@ struct UiApp::Impl {
         InputMultiline("##ccode", code, ImVec2(-FLT_MIN, 160.0f * S),
                        ImGuiInputTextFlags_AllowTabInput);
         if (task == Task::ContestSubmit) {
-            ImGui::TextColored(ImVec4(0.58f, 0.77f, 0.99f, 1.0f), "评测中，请稍候...");
-        } else if (primaryButton("提交比赛题目")) {
+            ImGui::TextColored(ImVec4(0.58f, 0.77f, 0.99f, 1.0f), i18n::t("judge.running", "评测中，请稍候..."));
+        } else if (primaryButton(i18n::t("action.submit_contest", "提交比赛题目"))) {
             startSubmit(true);
         }
         if (hasOutcome && !outcome.detailJson.empty()) {
@@ -1166,21 +1344,21 @@ struct UiApp::Impl {
             submissions = svc.submissionList(1000);
             dirtySubs = false;
         }
-        if (ImGui::Button("刷新")) dirtySubs = true;
+        if (ImGui::Button(i18n::t("common.refresh", "刷新"))) dirtySubs = true;
         ImGui::SameLine();
-        ImGui::TextDisabled("共 %d 条（最多显示 1000 条）", (int)submissions.size());
+        ImGui::TextDisabled(i18n::t("submissions.count", "共 %d 条（最多显示 1000 条）"), (int)submissions.size());
         ImGui::Spacing();
         if (ImGui::BeginTable("subs", 7,
                               ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                                   ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable,
                               ImVec2(0, ImGui::GetContentRegionAvail().y - 8))) {
             ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 55 * S);
-            ImGui::TableSetupColumn("题目", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("状态", ImGuiTableColumnFlags_WidthFixed, 60 * S);
-            ImGui::TableSetupColumn("分数", ImGuiTableColumnFlags_WidthFixed, 60 * S);
-            ImGui::TableSetupColumn("用时", ImGuiTableColumnFlags_WidthFixed, 80 * S);
-            ImGui::TableSetupColumn("内存", ImGuiTableColumnFlags_WidthFixed, 90 * S);
-            ImGui::TableSetupColumn("时间", ImGuiTableColumnFlags_WidthFixed, 150 * S);
+            ImGui::TableSetupColumn(i18n::t("nav.problems", "题目"), ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn(i18n::t("common.status", "状态"), ImGuiTableColumnFlags_WidthFixed, 60 * S);
+            ImGui::TableSetupColumn(i18n::t("common.score_short", "分数"), ImGuiTableColumnFlags_WidthFixed, 60 * S);
+            ImGui::TableSetupColumn(i18n::t("common.time_used", "用时"), ImGuiTableColumnFlags_WidthFixed, 80 * S);
+            ImGui::TableSetupColumn(i18n::t("common.memory", "内存"), ImGuiTableColumnFlags_WidthFixed, 90 * S);
+            ImGui::TableSetupColumn(i18n::t("common.time", "时间"), ImGuiTableColumnFlags_WidthFixed, 150 * S);
             ImGui::TableHeadersRow();
             for (const auto& sub : submissions) {
                 int id = ival(sub, "id");
@@ -1215,72 +1393,72 @@ struct UiApp::Impl {
     // ── 弹窗 ────────────────────────────────────────────
     void popups() {
         if (reqCreateProblem) {
-            ImGui::OpenPopup("新建题目");
+            ImGui::OpenPopup(i18n::t("action.new_problem", "新建题目"));
             reqCreateProblem = false;
         }
-        if (ImGui::BeginPopupModal("新建题目", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (ImGui::BeginPopupModal(i18n::t("action.new_problem", "新建题目"), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::SetNextItemWidth(360.0f * S);
-            InputString("标题", newProblemTitle);
-            if (primaryButton("创建")) {
+            InputString(i18n::t("common.title", "标题"), newProblemTitle);
+            if (primaryButton(i18n::t("common.create", "创建"))) {
                 if (newProblemTitle.empty()) {
-                    notify("标题不能为空");
+                    notify(i18n::t("toast.title_required", "标题不能为空"));
                 } else {
                     int id = svc.createProblem(newProblemTitle);
                     if (id > 0) {
-                        notify("已创建题目 #" + std::to_string(id));
+                        notify(i18n::t("toast.problem_created", "已创建题目 #") + std::to_string(id));
                         dirtyProblems = true;
                         dirtyStats = true;
                         ImGui::CloseCurrentPopup();
                     } else {
-                        notify("创建失败");
+                        notify(i18n::t("toast.create_failed", "创建失败"));
                     }
                 }
             }
             ImGui::SameLine();
-            if (ImGui::Button("取消")) ImGui::CloseCurrentPopup();
+            if (ImGui::Button(i18n::t("common.cancel", "取消"))) ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
 
         if (reqCreateArticle) {
-            ImGui::OpenPopup("新建文章");
+            ImGui::OpenPopup(i18n::t("action.new_article", "新建文章"));
             reqCreateArticle = false;
         }
-        if (ImGui::BeginPopupModal("新建文章", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (ImGui::BeginPopupModal(i18n::t("action.new_article", "新建文章"), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::SetNextItemWidth(420.0f * S);
-            InputString("标题", artTitle);
+            InputString(i18n::t("common.title", "标题"), artTitle);
             ImGui::SetNextItemWidth(520.0f * S);
-            InputMultiline("Markdown 正文", artContent, ImVec2(520.0f * S, 260.0f * S));
-            if (primaryButton("创建")) {
-                if (artTitle.empty()) notify("标题不能为空");
+            InputMultiline(i18n::t("article.content", "Markdown 正文"), artContent, ImVec2(520.0f * S, 260.0f * S));
+            if (primaryButton(i18n::t("common.create", "创建"))) {
+                if (artTitle.empty()) notify(i18n::t("toast.title_required", "标题不能为空"));
                 else {
                     int id = svc.createArticle(artTitle, artContent);
-                    notify(id > 0 ? "已创建文章 #" + std::to_string(id) : "创建失败");
+                    notify(id > 0 ? i18n::t("toast.article_created", "已创建文章 #") + std::to_string(id) : i18n::t("toast.create_failed", "创建失败"));
                     dirtyArticles = true;
                     dirtyStats = true;
                     ImGui::CloseCurrentPopup();
                 }
             }
             ImGui::SameLine();
-            if (ImGui::Button("取消")) ImGui::CloseCurrentPopup();
+            if (ImGui::Button(i18n::t("common.cancel", "取消"))) ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
 
         if (reqCreateContest) {
-            ImGui::OpenPopup("新建比赛");
+            ImGui::OpenPopup(i18n::t("action.new_contest", "新建比赛"));
             reqCreateContest = false;
         }
-        if (ImGui::BeginPopupModal("新建比赛", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (ImGui::BeginPopupModal(i18n::t("action.new_contest", "新建比赛"), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::SetNextItemWidth(420.0f * S);
-            InputString("标题", cTitle);
+            InputString(i18n::t("common.title", "标题"), cTitle);
             ImGui::SetNextItemWidth(420.0f * S);
-            InputString("开始时间", cStart);
+            InputString(i18n::t("contest.start_time", "开始时间"), cStart);
             ImGui::SetNextItemWidth(420.0f * S);
-            InputString("结束时间", cEnd);
+            InputString(i18n::t("contest.end_time", "结束时间"), cEnd);
             ImGui::SetNextItemWidth(420.0f * S);
-            InputString("题目 ID（逗号分隔）", cProblemIds);
-            if (primaryButton("创建")) {
+            InputString(i18n::t("contest.problem_ids", "题目 ID（逗号分隔）"), cProblemIds);
+            if (primaryButton(i18n::t("common.create", "创建"))) {
                 if (cTitle.empty()) {
-                    notify("标题不能为空");
+                    notify(i18n::t("toast.title_required", "标题不能为空"));
                 } else {
                     std::vector<int> ids;
                     std::string cur;
@@ -1297,101 +1475,101 @@ struct UiApp::Impl {
                     }
                     if (!cur.empty()) ids.push_back(std::atoi(cur.c_str()));
                     int id = svc.createContest(cTitle, cStart, cEnd, ids);
-                    notify(id > 0 ? "已创建比赛 #" + std::to_string(id) : "创建失败");
+                    notify(id > 0 ? i18n::t("toast.contest_created", "已创建比赛 #") + std::to_string(id) : i18n::t("toast.create_failed", "创建失败"));
                     dirtyContests = true;
                     dirtyStats = true;
                     ImGui::CloseCurrentPopup();
                 }
             }
             ImGui::SameLine();
-            if (ImGui::Button("取消")) ImGui::CloseCurrentPopup();
+            if (ImGui::Button(i18n::t("common.cancel", "取消"))) ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
 
         if (reqAddTc) {
-            ImGui::OpenPopup("新增测试点");
+            ImGui::OpenPopup(i18n::t("action.add_testcase", "新增测试点"));
             reqAddTc = false;
         }
-        if (ImGui::BeginPopupModal("新增测试点", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::TextUnformatted("输入数据");
+        if (ImGui::BeginPopupModal(i18n::t("action.add_testcase", "新增测试点"), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::TextUnformatted(i18n::t("testcase.input_data", "输入数据"));
             InputMultiline("##tcin", tcIn, ImVec2(520.0f * S, 140.0f * S));
-            ImGui::TextUnformatted("输出数据");
+            ImGui::TextUnformatted(i18n::t("testcase.output_data", "输出数据"));
             InputMultiline("##tcout", tcOut, ImVec2(520.0f * S, 140.0f * S));
             ImGui::SetNextItemWidth(120.0f * S);
-            ImGui::InputInt("分值", &tcScore);
+            ImGui::InputInt(i18n::t("common.points", "分值"), &tcScore);
             ImGui::SameLine();
             ImGui::SetNextItemWidth(120.0f * S);
-            ImGui::InputInt("时间(0=默认)", &tcTime);
+            ImGui::InputInt(i18n::t("testcase.time_hint", "时间(0=默认)"), &tcTime);
             ImGui::SameLine();
             ImGui::SetNextItemWidth(120.0f * S);
-            ImGui::InputInt("内存(0=默认)", &tcMem);
-            if (primaryButton("添加")) {
+            ImGui::InputInt(i18n::t("testcase.memory_hint", "内存(0=默认)"), &tcMem);
+            if (primaryButton(i18n::t("common.add", "添加"))) {
                 int id = svc.addTestCase(curProblemId, tcIn, tcOut, tcScore, tcTime, tcMem);
-                notify(id > 0 ? "已添加测试点 #" + std::to_string(id) : "添加失败");
+                notify(id > 0 ? i18n::t("toast.testcase_added", "已添加测试点 #") + std::to_string(id) : i18n::t("toast.add_failed", "添加失败"));
                 dirtyTestCases = true;
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (ImGui::Button("取消")) ImGui::CloseCurrentPopup();
+            if (ImGui::Button(i18n::t("common.cancel", "取消"))) ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
 
         if (reqSubmissionDetail) {
-            ImGui::OpenPopup("提交详情");
+            ImGui::OpenPopup(i18n::t("submission.detail", "提交详情"));
             reqSubmissionDetail = false;
         }
-        if (ImGui::BeginPopupModal("提交详情", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (ImGui::BeginPopupModal(i18n::t("submission.detail", "提交详情"), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             if (curSubmission.is_object()) {
                 ImGui::Text("#%d  %s", ival(curSubmission, "id"),
                             sval(curSubmission, "problem_title").c_str());
                 std::string st = sval(curSubmission, "status");
-                ImGui::Text("状态: ");
+                ImGui::Text(i18n::t("label.status", "状态: "));
                 ImGui::SameLine();
                 ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(statusColor(st)), "%s",
                                    st.c_str());
-                ImGui::Text("分数 %d  用时 %d ms  内存 %d KB  重判 %d 次",
+                ImGui::Text(i18n::t("submission.summary", "分数 %d  用时 %d ms  内存 %d KB  重判 %d 次"),
                             ival(curSubmission, "score"), ival(curSubmission, "time_used"),
                             ival(curSubmission, "memory_used"),
                             ival(curSubmission, "judge_times", 1));
-                ImGui::Text("提交时间: %s", sval(curSubmission, "submitted_at").c_str());
-                ImGui::Text("源码: %s", sval(curSubmission, "file_path").c_str());
+                ImGui::Text(i18n::t("submission.submitted_at", "提交时间: %s"), sval(curSubmission, "submitted_at").c_str());
+                ImGui::Text(i18n::t("submission.source", "源码: %s"), sval(curSubmission, "file_path").c_str());
                 ImGui::Separator();
                 ImGui::BeginChild("detail", ImVec2(620.0f * S, 340.0f * S), true);
                 if (curSubmission.contains("judge_detail")) {
                     drawJudgeDetail(curSubmission["judge_detail"].dump());
                 } else {
-                    ImGui::TextDisabled("暂无评测详情");
+                    ImGui::TextDisabled(i18n::t("judge.no_detail", "暂无评测详情"));
                 }
                 ImGui::EndChild();
                 if (opt.judgeAvailable) {
                     if (task == Task::Rejudge) {
-                        ImGui::TextColored(ImVec4(0.58f, 0.77f, 0.99f, 1.0f), "重判中...");
-                    } else if (primaryButton("重判")) {
+                        ImGui::TextColored(ImVec4(0.58f, 0.77f, 0.99f, 1.0f), i18n::t("judge.rejudging", "重判中..."));
+                    } else if (primaryButton(i18n::t("action.rejudge", "重判"))) {
                         task = Task::Rejudge;
                         fut = svc.rejudgeAsync(ival(curSubmission, "id"));
                     }
                     ImGui::SameLine();
                 }
             } else {
-                ImGui::TextUnformatted("记录不存在");
+                ImGui::TextUnformatted(i18n::t("error.record_missing", "记录不存在"));
             }
-            if (ImGui::Button("关闭")) ImGui::CloseCurrentPopup();
+            if (ImGui::Button(i18n::t("common.close", "关闭"))) ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
 
         if (confirmOpenRequested) {
-            ImGui::OpenPopup("确认删除");
+            ImGui::OpenPopup(i18n::t("dialog.confirm_delete", "确认删除"));
             confirmOpenRequested = false;
         }
-        if (ImGui::BeginPopupModal("确认删除", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            const char* what = "该项";
-            if (confirmKind == 1) what = "题目（含全部测试点）";
-            else if (confirmKind == 2) what = "文章";
-            else if (confirmKind == 3) what = "比赛";
-            else if (confirmKind == 4) what = "测试点";
-            ImGui::Text("确认删除%s？此操作不可撤销。", what);
+        if (ImGui::BeginPopupModal(i18n::t("dialog.confirm_delete", "确认删除"), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            const char* what = i18n::t("dialog.this_item", "该项");
+            if (confirmKind == 1) what = i18n::t("dialog.item_problem", "题目（含全部测试点）");
+            else if (confirmKind == 2) what = i18n::t("nav.articles", "文章");
+            else if (confirmKind == 3) what = i18n::t("nav.contests", "比赛");
+            else if (confirmKind == 4) what = i18n::t("problem.testcase", "测试点");
+            ImGui::Text(i18n::t("dialog.confirm_delete_body", "确认删除%s？此操作不可撤销。"), what);
             ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(220, 38, 38, 255));
-            if (ImGui::Button("删除")) {
+            if (ImGui::Button(i18n::t("common.delete", "删除"))) {
                 if (confirmKind == 1) {
                     svc.deleteProblem(confirmId);
                     selProblem = -1;
@@ -1408,23 +1586,80 @@ struct UiApp::Impl {
                 ImGui::PopStyleColor();
                 confirmKind = 0;
                 markAllDirty();
-                notify("已删除");
+                notify(i18n::t("toast.deleted", "已删除"));
                 ImGui::CloseCurrentPopup();
             } else {
                 ImGui::PopStyleColor();
             }
             ImGui::SameLine();
-            if (ImGui::Button("取消")) {
+            if (ImGui::Button(i18n::t("common.cancel", "取消"))) {
                 confirmKind = 0;
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
         }
+
+        popupLanguage();
+        popupIo();
+    }
+
+    // 在线语言包：列表 + 下载（异步，避免网络阻塞界面）
+    void popupLanguage() {
+        if (reqOnlineLangs) {
+            ImGui::OpenPopup(i18n::t("lang.online", "获取在线语言"));
+            reqOnlineLangs = false;
+            if (netTask == NetTask::None) startOnlineFetch();
+        }
+        if (!ImGui::BeginPopupModal(i18n::t("lang.online", "获取在线语言"), nullptr,
+                                    ImGuiWindowFlags_AlwaysAutoResize))
+            return;
+
+        ImGui::TextWrapped(
+            i18n::t("lang.hint", "语言包存放在 <data>/langs，与 clijudge CLI 共用"));
+        ImGui::Separator();
+        if (netTask == NetTask::Fetch) {
+            ImGui::TextDisabled(i18n::t("lang.fetching", "正在获取在线语言列表..."));
+        } else if (netTask == NetTask::Download) {
+            std::string msg = i18n::tf("lang.downloading", "正在下载 {0}...", {downloadCode});
+            ImGui::TextDisabled("%s", msg.c_str());
+        } else if (onlineFetched && onlineLangs.empty()) {
+            ImGui::TextWrapped(i18n::t("lang.empty", "没有获取到在线语言（请检查网络或语言源设置）"));
+        } else if (onlineFetched) {
+            ImGui::BeginChild("##online_langs", ImVec2(380.0f * S, 220.0f * S), true);
+            for (const auto& code : onlineLangs) {
+                ImGui::PushID(code.c_str());
+                ImGui::TextUnformatted(code.c_str());
+                ImGui::SameLine(200.0f * S);
+                if (i18n::hasLanguage(code)) {
+                    if (ImGui::SmallButton(i18n::t("lang.use", "使用"))) {
+                        switchLanguage(code);
+                        ImGui::CloseCurrentPopup();
+                        ImGui::PopID();
+                        break;
+                    }
+                } else if (ImGui::SmallButton(i18n::t("lang.download", "下载"))) {
+                    downloadCode = code;
+                    netTask = NetTask::Download;
+                    downloadFut = std::async(std::launch::async,
+                                             [code] { return i18n::downloadLanguage(code); });
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndChild();
+        }
+        ImGui::Separator();
+        ImGui::BeginDisabled(netTask != NetTask::None);
+        if (ImGui::Button(i18n::t("common.refresh", "刷新"))) startOnlineFetch();
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button(i18n::t("common.close", "关闭"))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
     }
 
     // ── 主循环 ──────────────────────────────────────────
     void Frame() {
         updateAsync();
+        updateNet();
 
         ImGuiViewport* vp = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(vp->WorkPos);
@@ -1439,7 +1674,7 @@ struct UiApp::Impl {
         ImGui::PopStyleVar(2);
 
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12 * S, 10 * S));
-        bool narrow = vp->WorkSize.x < 760.0f * S;
+        bool narrow = vp->WorkSize.x < 760.0f * S || vp->WorkSize.y < 520.0f * S;
         float contentW = vp->WorkSize.x;
         if (!narrow) {
             drawSidebar();

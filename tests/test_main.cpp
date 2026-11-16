@@ -3,9 +3,14 @@
 // 由 CMake 的 clijudgepp_tests 目标构建，CI 中通过 ctest 运行。
 
 #include <cstdio>
+#include <cstdlib>
+#include <ctime>
+#include <filesystem>
+#include <fstream>
 #include <string>
 
 #include "compare_modes.h"
+#include "i18n.h"
 #include "judge.h"
 #include "markdown.h"
 
@@ -74,11 +79,58 @@ void testCompareModes() {
     CHECK(compareModeIndex("") == -1);
 }
 
+void testI18n() {
+    namespace fs = std::filesystem;
+    namespace i18n = clijudge::gui::i18n;
+
+    fs::path tmp = fs::temp_directory_path() /
+                   ("clijudgepp-i18n-" + std::to_string((unsigned long)std::time(nullptr)));
+    std::error_code ec;
+    fs::remove_all(tmp, ec);
+    fs::create_directories(tmp / "langs", ec);
+    const std::string cfg = (tmp / "gui.json").string();
+
+    // 中文：使用调用处的兜底字面量
+    i18n::init(tmp.string(), cfg, "zh");
+    CHECK(std::string(i18n::t("common.save", "保存")) == "保存");
+
+    // 英文：内置目录
+    CHECK(i18n::setLanguage("en"));
+    CHECK(std::string(i18n::t("common.save", "保存")) == "Save");
+    CHECK(std::string(i18n::t("nav.overview", "概览")) == "Overview");
+    CHECK(i18n::tf("lang.switched", "已切换到 {0}", {"English"}) == "Switched to English");
+
+    // 语言选择写入 gui.json
+    {
+        std::ifstream f(cfg);
+        std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        CHECK(content.find("\"lang\": \"en\"") != std::string::npos);
+    }
+
+    // 外部语言包（<data>/langs/*.cjl 的 strings.gui）覆盖文案，
+    // 未翻译的键回退到内置英文
+    {
+        std::ofstream f(tmp / "langs" / "ja.cjl", std::ios::binary);
+        f << R"({"meta":{"name":"ja","display":"日本語"},)"
+             R"("strings":{"gui":{"common":{"save":"保存する"}}}})";
+    }
+    CHECK(i18n::setLanguage("ja"));
+    CHECK(i18n::hasLanguage("ja"));
+    CHECK(std::string(i18n::t("common.save", "保存")) == "保存する");
+    CHECK(std::string(i18n::t("common.cancel", "取消")) == "Cancel");
+
+    // 未知语言拒绝切换
+    CHECK(!i18n::setLanguage("no_such_lang"));
+
+    fs::remove_all(tmp, ec);
+}
+
 } // namespace
 
 int main() {
     testMarkdownPlainText();
     testCompareModes();
+    testI18n();
 
     if (g_failures == 0) {
         std::printf("ALL TESTS PASSED\n");
