@@ -1,4 +1,4 @@
-﻿name: build
+name: build
 
 # CliJudge++ 原生 GUI（SDL2 + Dear ImGui）
 # 复用 dxxjudges/clijudge 的 include（数据层 + 评测层），
